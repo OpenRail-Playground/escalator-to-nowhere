@@ -3,14 +3,20 @@ import json
 import os
 
 # Configurable constants for columns
-TPS_COLUMNS = ["id", "name", "oeffentliche_flaeche"]
+TPS_TABLE_NAME = "sap-tps-gesamt"
+TPS_COLUMNS = ["id", "name", "oeffentliche_flaeche", "bahnhof"]
+BAHNSTEIG_TABLE_NAME = "sap-bahnsteig-eqs-gesamt"
 BAHNSTEIG_COLUMNS = ["id", "technischer_platz"]
+GLEIS_TABLE_NAME = "sap-gleise-gesamt"
 GLEIS_COLUMNS = ["equipment", "name"]
-AUFZUG_COLUMNS = ["id", "technischer_platz", "name", "ausftextlichebeschreibung"]
+AUFZUG_TABLE_NAME = "sap-aufzug-eqs-gesamt"
+AUFZUG_COLUMNS = ["id", "technischer_platz", "name", "ausftextlichebeschreibung", "bahnhof"]
 
 class DataProcessor:
-    def __init__(self, data_dir: str):
+    def __init__(self, data_dir: str, bahnhof_ids: list = None):
         self.data_dir = data_dir
+        self.bahnhof_ids = bahnhof_ids
+        self.tps_data, self.equipment_data = self.get_tps_equipment_data()
 
     def load_and_filter_csv(self, filename: str, columns: list) -> pd.DataFrame:
         """Loads a CSV, filters columns, and returns a df."""
@@ -23,15 +29,18 @@ class DataProcessor:
             # Filter for existing columns to avoid errors
             existing_cols = [col for col in columns if col in df.columns]
             filtered_df = df[existing_cols]
+            # only use entries of specified bahnhof_ids if provided
+            if self.bahnhof_ids is not None and "bahnhof" in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df["bahnhof"].isin(self.bahnhof_ids)]
             return filtered_df
         except Exception as e:
             raise RuntimeError(f"Error processing {filename}: {e}")
 
     def gleis_enhanced_tps_data(self) -> pd.DataFrame:
         """Processes the gleis data and returns a DataFrame with specific columns."""
-        tps_data = self.load_and_filter_csv("sap-tps-berlin-schlachtensee.csv", TPS_COLUMNS)
-        gleis_data = self.load_and_filter_csv("sap-gleise-berlin-schlachtensee.csv", GLEIS_COLUMNS)
-        bahnsteig_data = self.load_and_filter_csv("sap-bahnsteig-eqs-berlin-schlachtensee.csv", BAHNSTEIG_COLUMNS)
+        tps_data = self.load_and_filter_csv(TPS_TABLE_NAME + ".csv", TPS_COLUMNS)
+        gleis_data = self.load_and_filter_csv(GLEIS_TABLE_NAME + ".csv", GLEIS_COLUMNS)
+        bahnsteig_data = self.load_and_filter_csv(BAHNSTEIG_TABLE_NAME + ".csv", BAHNSTEIG_COLUMNS)
 
         bahnsteig_data.rename(columns={"id": "id_bahnsteig"}, inplace=True)
         gleis_data.rename(columns={"id": "id_gleis"}, inplace=True)
@@ -44,24 +53,26 @@ class DataProcessor:
         return final_df[[*tps_data.columns, "gleis_names"]]
 
 
-    def write_json(self, data: str, filename: str) -> None:
-        """Writes a JSON string to the temp folder."""
-        temp_dir = os.path.join(os.path.dirname(self.data_dir), "temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        with open(os.path.join(temp_dir, filename), "w", encoding="utf-8") as f:
-            f.write(data)
-
-    def get_context_data(self) -> dict:
-        """Processes specific files and returns a dictionary of data."""
+    def get_tps_equipment_data(self) -> tuple:
         tps_data = self.gleis_enhanced_tps_data()
         tps_data = tps_data[tps_data['oeffentliche_flaeche'] == 'X'].drop(columns=['oeffentliche_flaeche'])
-        aufzug_data = self.load_and_filter_csv("sap-aufzug-eqs-berlin-schlachtensee.csv", AUFZUG_COLUMNS)
+        aufzug_data = self.load_and_filter_csv(AUFZUG_TABLE_NAME + ".csv", AUFZUG_COLUMNS)
+
+        temp_dir = os.path.join(os.path.dirname(self.data_dir), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        tps_data.to_csv(os.path.join(temp_dir, "tps_data.csv"), index=False)
+        aufzug_data.to_csv(os.path.join(temp_dir, "aufzug_data.csv"), index=False)
+
+        return tps_data, aufzug_data
+
+
+    def get_context_data(self, bahnhof_id: int) -> dict:
+        """Processes specific files and returns a dictionary of data."""
+        tps_data = self.tps_data[self.tps_data['bahnhof'] == bahnhof_id].drop(columns=['bahnhof'])
+        equipment_data = self.equipment_data[self.equipment_data['bahnhof'] == bahnhof_id].drop(columns=['bahnhof'])
 
         tps_json = tps_data.to_json(orient="records")
-        aufzug_json = aufzug_data.to_json(orient="records")
-
-        self.write_json(tps_json, "tps_data.json")
-        self.write_json(aufzug_json, "aufzug_data.json")
+        aufzug_json = equipment_data.to_json(orient="records")
 
         return {
             "tps": tps_json,
