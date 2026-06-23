@@ -1,19 +1,21 @@
+from importlib.resources import path
+
 from .llm_client import LLMClient
+from pathlib import Path
+
+SYSTEM_PROMPT_PATH = "prompts/system-prompt.txt"
 
 class DataExtractor:
     def __init__(self, client: LLMClient):
         self.client = client
+    
 
     def extract(self, context_data: dict) -> dict:
         """
         Extracts connections between different datasets.
         """
         # 1. Define prompts
-        system_prompt = (
-            "You are a data integration specialist. Your task is to analyze the provided JSON datasets "
-            "and identify logical connections, relationships, or matches between them (e.g., shared IDs, "
-            "matching names, or related descriptions). Return the findings in a clear, structured format."
-        )
+        system_prompt = Path(SYSTEM_PROMPT_PATH).read_text(encoding="utf-8").strip()
         
         # Build context string
         context_str = "Analyze the following datasets for connections:\n"
