@@ -21,8 +21,8 @@ class DataExtractor:
         context_str = "Analyze the following datasets for connections:\n"
         if "tps" in context_data:
             context_str += f"\nTPS Data:\n{context_data['tps']}\n"
-        if "aufzug" in context_data:
-            context_str += f"\nAufzug Data:\n{context_data['aufzug']}\n"
+        if "equipment" in context_data:
+            context_str += f"\nEquipment Data:\n{context_data['equipment']}\n"
 
         # 2. Query LLM
         response = self.client.query(context_str, system_prompt=system_prompt)

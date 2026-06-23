@@ -4,7 +4,7 @@ import os
 
 # Configurable constants for columns
 TPS_COLUMNS = ["id", "standardized_name"]
-AUFZUG_COLUMNS = ["id", "standardized_name", "ausftextlichebeschreibung"]
+AUFZUG_COLUMNS = ["id", "technischer_platz", "standardized_name", "ausftextlichebeschreibung"]
 
 class DataProcessor:
     def __init__(self, data_dir: str):
@@ -34,5 +34,5 @@ class DataProcessor:
 
         return {
             "tps": tps_data,
-            "aufzug": aufzug_data
+            "equipment": aufzug_data
         }
