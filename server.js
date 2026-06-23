@@ -2,6 +2,7 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 const { URL } = require("url");
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5510;
@@ -360,6 +361,270 @@ function serveStatic(res, pathname) {
   });
 }
 
+function readJsonBody(req, maxBytes = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      raw += chunk;
+      if (Buffer.byteLength(raw, "utf8") > maxBytes) {
+        reject(new Error("Request body too large"));
+      }
+    });
+
+    req.on("end", () => {
+      try {
+        const payload = raw ? JSON.parse(raw) : {};
+        resolve(payload);
+      } catch (error) {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function sanitizeFileNameSegment(value) {
+  return String(value || "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
+function decodeDataUrlPng(dataUrl) {
+  if (typeof dataUrl !== "string") {
+    throw new Error("imageDataUrl must be a string");
+  }
+
+  const match = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+  if (!match) {
+    throw new Error(
+      "Invalid imageDataUrl format (expected data:image/png;base64,...)",
+    );
+  }
+
+  const imageBuffer = Buffer.from(match[2], "base64");
+  if (!imageBuffer.length) {
+    throw new Error("imageDataUrl is empty");
+  }
+
+  return imageBuffer;
+}
+
+function resolveWorkspacePath(inputPath) {
+  if (!inputPath || typeof inputPath !== "string") {
+    return null;
+  }
+
+  const trimmed = inputPath.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const resolved = path.resolve(ROOT_DIR, trimmed);
+  if (resolved === ROOT_DIR || resolved.startsWith(`${ROOT_DIR}${path.sep}`)) {
+    return resolved;
+  }
+
+  return null;
+}
+
+function pickPythonExecutable() {
+  const venvPython = path.join(ROOT_DIR, "ml", ".venv", "bin", "python");
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+  return "python3";
+}
+
+function runPythonInference({
+  imagePath,
+  weightsPath,
+  scoreThreshold,
+  outputPath,
+  device,
+}) {
+  return new Promise((resolve, reject) => {
+    const pythonBin = pickPythonExecutable();
+    const scriptPath = path.join(
+      ROOT_DIR,
+      "ml",
+      "infer_instance_segmentation.py",
+    );
+    const args = [
+      scriptPath,
+      "--weights",
+      weightsPath,
+      "--image",
+      imagePath,
+      "--output",
+      outputPath,
+      "--score-threshold",
+      String(scoreThreshold),
+    ];
+
+    if (device) {
+      args.push("--device", device);
+    }
+
+    const child = spawn(pythonBin, args, {
+      cwd: path.join(ROOT_DIR, "ml"),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Failed to run inference: ${error.message}`));
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Inference failed with exit code ${code}. ${stderr || stdout || "No error output."}`,
+          ),
+        );
+        return;
+      }
+
+      resolve({ stdout, stderr, pythonBin });
+    });
+  });
+}
+
+async function serveInference(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req, 25 * 1024 * 1024);
+  } catch (error) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: error.message }));
+    return;
+  }
+
+  let imagePath = null;
+  const weightsPath = resolveWorkspacePath(
+    payload.weightsPath || "ml/runs/platform_instance/best.pt",
+  );
+  const scoreThresholdRaw = Number(payload.scoreThreshold ?? 0.5);
+  const scoreThreshold = Number.isFinite(scoreThresholdRaw)
+    ? Math.min(Math.max(scoreThresholdRaw, 0), 1)
+    : 0.5;
+  const device =
+    typeof payload.device === "string" && payload.device.trim()
+      ? payload.device.trim()
+      : null;
+
+  const inputDir = path.join(ROOT_DIR, "ml", "predictions", "frontend_inputs");
+  fs.mkdirSync(inputDir, { recursive: true });
+
+  if (typeof payload.imageDataUrl === "string" && payload.imageDataUrl.trim()) {
+    try {
+      const imageBuffer = decodeDataUrlPng(payload.imageDataUrl.trim());
+      const imageNameHint = sanitizeFileNameSegment(
+        payload.imageName || "map_view",
+      );
+      const inputPath = path.join(
+        inputDir,
+        `${imageNameHint || "map_view"}_${Date.now()}.png`,
+      );
+      fs.writeFileSync(inputPath, imageBuffer);
+      imagePath = inputPath;
+    } catch (error) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: error.message }));
+      return;
+    }
+  } else {
+    imagePath = resolveWorkspacePath(payload.imagePath);
+  }
+
+  if (!imagePath || !fs.existsSync(imagePath)) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        error:
+          "Provide imageDataUrl or a valid imagePath (must exist inside workspace).",
+      }),
+    );
+    return;
+  }
+
+  if (fs.statSync(imagePath).isDirectory()) {
+    const firstImage = fs
+      .readdirSync(imagePath)
+      .find((name) => /\.(png|jpe?g|tiff?)$/i.test(name));
+    if (!firstImage) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          error: "imagePath points to a folder with no supported image files.",
+        }),
+      );
+      return;
+    }
+    imagePath = path.join(imagePath, firstImage);
+  }
+
+  if (!weightsPath || !fs.existsSync(weightsPath)) {
+    res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        error: "Invalid weightsPath (must exist inside workspace).",
+      }),
+    );
+    return;
+  }
+
+  const outputDir = path.join(ROOT_DIR, "ml", "predictions", "frontend");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const imageStem = path.basename(imagePath, path.extname(imagePath));
+  const outputPath = path.join(
+    outputDir,
+    `${imageStem}_pred_${Date.now()}.png`,
+  );
+
+  try {
+    const result = await runPythonInference({
+      imagePath,
+      weightsPath,
+      scoreThreshold,
+      outputPath,
+      device,
+    });
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error("Inference completed but output image was not created.");
+    }
+
+    const relativeOutputPath = `/${path.relative(ROOT_DIR, outputPath).split(path.sep).join("/")}`;
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        outputImagePath: relativeOutputPath,
+        python: result.pythonBin,
+        stdout: result.stdout,
+      }),
+    );
+  } catch (error) {
+    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: error.message }));
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(
     req.url,
@@ -383,6 +648,11 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ error: "Internal server error" }));
     }
+    return;
+  }
+
+  if (requestUrl.pathname === "/infer" && req.method === "POST") {
+    await serveInference(req, res);
     return;
   }
 

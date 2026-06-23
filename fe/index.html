@@ -33,6 +33,73 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
+        .inference-panel {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 1001;
+            width: min(340px, calc(100vw - 24px));
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            transition: transform 160ms ease, opacity 160ms ease;
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .inference-panel.is-collapsed {
+            transform: translateX(calc(100% + 20px));
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .inference-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        #closeInferencePanelBtn {
+            width: 24px;
+            height: 24px;
+            border: 1px solid #c9d1d9;
+            background: #ffffff;
+            color: #57606a;
+            border-radius: 999px;
+            font-size: 14px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        #closeInferencePanelBtn:hover {
+            background: #f6f8fa;
+            color: #24292f;
+        }
+
+        #showInferencePanelBtn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 1002;
+            border: 1px solid #991b1b;
+            background: #b91c1c;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+
+        #showInferencePanelBtn:hover {
+            background: #991b1b;
+        }
+
         .search-row {
             display: flex;
             gap: 8px;
@@ -228,6 +295,54 @@
             min-height: 16px;
         }
 
+        #inferenceWeightsPath,
+        #inferenceScoreThreshold,
+        #inferenceDevice {
+            width: 100%;
+            margin-top: 6px;
+            border: 1px solid #c9d1d9;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+
+        #runInferenceBtn {
+            margin-top: 8px;
+            border: 1px solid #b91c1c;
+            background: #dc2626;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        #runInferenceBtn:hover {
+            background: #b91c1c;
+        }
+
+        #runInferenceBtn:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+        }
+
+        #inferenceStatus {
+            margin: 6px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #inferencePreview {
+            width: 100%;
+            margin-top: 8px;
+            border-radius: 8px;
+            border: 1px solid #c9d1d9;
+            display: none;
+        }
+
         .wms-opacity-row {
             margin-top: 8px;
             display: flex;
@@ -272,9 +387,10 @@
 
         .coords-bar {
             position: absolute;
-            left: 12px;
-            right: 12px;
-            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(900px, calc(100vw - 180px));
+            bottom: 34px;
             z-index: 1000;
             background: rgba(17, 24, 39, 0.9);
             color: #ffffff;
@@ -289,6 +405,35 @@
 
         .coords-label {
             color: #93c5fd;
+        }
+
+        .leaflet-bottom.leaflet-left .leaflet-control-zoom,
+        .leaflet-bottom.leaflet-left .leaflet-control-scale,
+        .leaflet-bottom.leaflet-right .leaflet-control-layers {
+            margin-bottom: 72px;
+        }
+
+        .leaflet-bottom.leaflet-right .leaflet-control-attribution {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 820px) {
+            .coords-bar {
+                width: calc(100vw - 24px);
+                bottom: 42px;
+                font-size: 11px;
+                gap: 8px;
+            }
+
+            .leaflet-bottom.leaflet-left .leaflet-control-zoom,
+            .leaflet-bottom.leaflet-left .leaflet-control-scale,
+            .leaflet-bottom.leaflet-right .leaflet-control-layers {
+                margin-bottom: 104px;
+            }
+
+            .leaflet-bottom.leaflet-right .leaflet-control-attribution {
+                margin-bottom: 0;
+            }
         }
     </style>
 </head>
@@ -331,6 +476,20 @@
         </div>
         <textarea id="pointListInput" placeholder="One point per line: lat, lon"></textarea>
         <div id="pointStatus"></div>
+
+    </div>
+    <button id="showInferencePanelBtn" type="button" aria-expanded="false">Inference</button>
+    <div id="inferencePanel" class="inference-panel">
+        <div class="inference-panel-header">
+            <div class="panel-title" style="margin: 0;">Inference Test</div>
+            <button id="closeInferencePanelBtn" type="button" aria-label="Hide inference panel">x</button>
+        </div>
+        <div id="inferenceStatus">Input: currently visible aerial map viewport</div>
+        <input id="inferenceWeightsPath" type="text" value="ml/runs/platform_instance/best.pt" placeholder="Weights path in workspace" autocomplete="off" />
+        <input id="inferenceScoreThreshold" type="number" min="0" max="1" step="0.05" value="0.5" placeholder="Score threshold" autocomplete="off" />
+        <input id="inferenceDevice" type="text" value="" placeholder="Device (optional: mps, cuda, cpu)" autocomplete="off" />
+        <button id="runInferenceBtn" type="button">Run Inference</button>
+        <img id="inferencePreview" alt="Inference preview" />
     </div>
     <div id="map"></div>
     <div class="coords-bar">
@@ -344,7 +503,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script>
         const mapMaxZoom = 19;
-        const map = L.map("map", { maxZoom: mapMaxZoom }).setView([52.559281, 14.351497], 17);
+        const map = L.map("map", { maxZoom: mapMaxZoom, zoomControl: false }).setView([52.559281, 14.351497], 17);
 
         map.createPane("aerialPane");
         map.getPane("aerialPane").style.zIndex = 420;
@@ -352,6 +511,8 @@
         map.getPane("railPane").style.zIndex = 430;
         map.createPane("platformPane");
         map.getPane("platformPane").style.zIndex = 440;
+        map.createPane("inferencePane");
+        map.getPane("inferencePane").style.zIndex = 445;
 
         const osmStandard = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
@@ -405,7 +566,11 @@
             "Train Platforms": platformLayer,
             "ML Export Points": exportPointLayer,
         };
-        const layerControl = L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
+        const layerControl = L.control.layers(baseLayers, overlayLayers, {
+            collapsed: false,
+            position: "bottomright",
+        }).addTo(map);
+        L.control.zoom({ position: "bottomleft" }).addTo(map);
 
         L.control.scale().addTo(map);
 
@@ -431,9 +596,20 @@
         const hoverCoords = document.getElementById("hoverCoords");
         const clickCoords = document.getElementById("clickCoords");
         const zoomLevel = document.getElementById("zoomLevel");
+        const inferencePanel = document.getElementById("inferencePanel");
+        const closeInferencePanelBtn = document.getElementById("closeInferencePanelBtn");
+        const showInferencePanelBtn = document.getElementById("showInferencePanelBtn");
+        const inferenceWeightsPathInput = document.getElementById("inferenceWeightsPath");
+        const inferenceScoreThresholdInput = document.getElementById("inferenceScoreThreshold");
+        const inferenceDeviceInput = document.getElementById("inferenceDevice");
+        const runInferenceBtn = document.getElementById("runInferenceBtn");
+        const inferenceStatus = document.getElementById("inferenceStatus");
+        const inferencePreview = document.getElementById("inferencePreview");
         let selectedMarker;
         let aerialOverlay;
         let aerialOverlayLabel;
+        let inferenceOverlay;
+        let inferenceOverlayLabel;
         let platformRequestId = 0;
         let lastClickedLatLng = null;
         const platformMinZoom = 15;
@@ -442,6 +618,14 @@
         const aerialLayerAliases = {
             "Orthophotos Publiziert": "Inframaps:Orthophotos_Publiziert",
         };
+        let inferencePanelCollapsed = false;
+
+        function setInferencePanelCollapsed(collapsed) {
+            inferencePanelCollapsed = !!collapsed;
+            inferencePanel.classList.toggle("is-collapsed", inferencePanelCollapsed);
+            showInferencePanelBtn.style.display = inferencePanelCollapsed ? "block" : "none";
+            showInferencePanelBtn.setAttribute("aria-expanded", String(!inferencePanelCollapsed));
+        }
 
         function getAerialOpacity() {
             return Number(aerialOpacityInput.value) / 100;
@@ -655,6 +839,31 @@
         function resolveAerialLayerName() {
             const rawLayerName = wmsLayerNameInput.value.trim();
             return aerialLayerAliases[rawLayerName] || rawLayerName;
+        }
+
+        function showInferenceOverlay(outputImagePath, inputBounds) {
+            const imageUrl = `${outputImagePath}?t=${Date.now()}`;
+            const overlayBounds = L.latLngBounds(inputBounds.getSouthWest(), inputBounds.getNorthEast());
+
+            if (!inferenceOverlay) {
+                inferenceOverlay = L.imageOverlay(imageUrl, overlayBounds, {
+                    opacity: 0.75,
+                    pane: "inferencePane",
+                    interactive: false,
+                });
+                inferenceOverlayLabel = "Inference Result";
+                layerControl.addOverlay(inferenceOverlay, inferenceOverlayLabel);
+                inferenceOverlay.addTo(map);
+                inferenceOverlay.bringToFront();
+                return;
+            }
+
+            inferenceOverlay.setBounds(overlayBounds);
+            inferenceOverlay.setUrl(imageUrl);
+            if (!map.hasLayer(inferenceOverlay)) {
+                inferenceOverlay.addTo(map);
+            }
+            inferenceOverlay.bringToFront();
         }
 
         function addAerialOverlay() {
@@ -1716,6 +1925,94 @@
             }
         }
 
+        async function runFrontendInference() {
+            const weightsPath = inferenceWeightsPathInput.value.trim();
+            const scoreThreshold = Number(inferenceScoreThresholdInput.value);
+            const device = inferenceDeviceInput.value.trim();
+
+            if (!aerialOverlay || !map.hasLayer(aerialOverlay)) {
+                inferenceStatus.textContent = "Enable the aerial layer first.";
+                return;
+            }
+
+            const viewportSize = map.getSize();
+            const width = Math.max(64, Math.round(viewportSize.x));
+            const height = Math.max(64, Math.round(viewportSize.y));
+
+            const bounds = map.getBounds();
+            const inferenceInputBounds = L.latLngBounds(bounds.getSouthWest(), bounds.getNorthEast());
+            const northWest = bounds.getNorthWest();
+            const southEast = bounds.getSouthEast();
+            const projectedNW = map.options.crs.project(northWest);
+            const projectedSE = map.options.crs.project(southEast);
+            const layerName = resolveAerialLayerName();
+
+            if (!layerName) {
+                inferenceStatus.textContent = "Set a valid aerial layer name first.";
+                return;
+            }
+
+            runInferenceBtn.disabled = true;
+            inferenceStatus.textContent = "Rendering current aerial viewport...";
+
+            try {
+                const params = new URLSearchParams({
+                    service: "WMS",
+                    request: "GetMap",
+                    layers: layerName,
+                    styles: "",
+                    format: "image/png",
+                    transparent: "true",
+                    version: "1.1.1",
+                    srs: "EPSG:3857",
+                    bbox: `${projectedNW.x},${projectedSE.y},${projectedSE.x},${projectedNW.y}`,
+                    width: String(width),
+                    height: String(height),
+                });
+
+                const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+                const viewportCanvas = document.createElement("canvas");
+                viewportCanvas.width = width;
+                viewportCanvas.height = height;
+                const viewportCtx = viewportCanvas.getContext("2d");
+                viewportCtx.drawImage(sourceImage, 0, 0, width, height);
+                const imageDataUrl = viewportCanvas.toDataURL("image/png");
+
+                inferenceStatus.textContent = "Running inference on visible aerial map...";
+                const payload = {
+                    imageDataUrl,
+                    imageName: `map_view_z${map.getZoom()}`,
+                    weightsPath,
+                    scoreThreshold,
+                };
+                if (device) {
+                    payload.device = device;
+                }
+
+                const response = await fetch("/infer", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result && result.error ? result.error : `HTTP ${response.status}`);
+                }
+
+                inferencePreview.src = `${result.outputImagePath}?t=${Date.now()}`;
+                inferencePreview.style.display = "block";
+                showInferenceOverlay(result.outputImagePath, inferenceInputBounds);
+                inferenceStatus.textContent = `Inference complete. Output: ${result.outputImagePath}`;
+            } catch (error) {
+                inferenceStatus.textContent = `Inference failed: ${error && error.message ? error.message : "unknown error"}`;
+            } finally {
+                runInferenceBtn.disabled = false;
+            }
+        }
+
         addWmsBtn.addEventListener("click", addAerialOverlay);
         wmsLayerNameInput.addEventListener("keydown", (event) => {
             if (event.key === "Enter") {
@@ -1735,6 +2032,13 @@
         loadPlatformsBtn.addEventListener("click", loadPlatformsInView);
         exportPlatformsBtn.addEventListener("click", exportPlatforms);
         exportMlBundleBtn.addEventListener("click", exportPlatformsMlBundle);
+        runInferenceBtn.addEventListener("click", runFrontendInference);
+        closeInferencePanelBtn.addEventListener("click", () => {
+            setInferencePanelCollapsed(true);
+        });
+        showInferencePanelBtn.addEventListener("click", () => {
+            setInferencePanelCollapsed(false);
+        });
         copyCoordsBtn.addEventListener("click", async () => {
             const point = getActionLatLng();
             const text = formatCoords(point.lat, point.lng);
@@ -1790,6 +2094,7 @@
         map.on("zoomend", updateZoomLevel);
         updateZoomLevel();
         refreshExportPointPreview();
+        setInferencePanelCollapsed(false);
     </script>
 </body>
 
