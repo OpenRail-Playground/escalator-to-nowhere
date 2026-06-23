@@ -16,7 +16,11 @@ SKIP_TRAIN=0
 SKIP_INFER=0
 EPOCHS="30"
 BATCH_SIZE="2"
-NUM_WORKERS="4"
+DEFAULT_NUM_WORKERS="4"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+	DEFAULT_NUM_WORKERS="2"
+fi
+NUM_WORKERS="$DEFAULT_NUM_WORKERS"
 LR="0.005"
 RUN_OUTPUT_DIR="runs/platform_instance"
 INFER_IMAGES_DIR=""
@@ -53,7 +57,7 @@ Options:
 	--skip-infer            Skip inference stage
 	--epochs <int>          Training epochs (default: 30)
 	--batch-size <int>      Training batch size (default: 2)
-	--num-workers <int>     Training/inference data loader workers (default: 4)
+	--num-workers <int>     Training/inference data loader workers (default: 2 on macOS, 4 otherwise)
 	--lr <float>            Training learning rate (default: 0.005)
 	--run-output-dir <path> Training output directory (default: runs/platform_instance)
 	--infer-images-dir <path> Images folder for inference (default: <output-root>/test/images)

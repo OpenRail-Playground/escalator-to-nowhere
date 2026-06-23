@@ -33,8 +33,10 @@ class CocoInstanceDataset(Dataset):
         image_info = self.coco.loadImgs(image_id)[0]
         image_path = self.images_dir / image_info["file_name"]
 
-        image = Image.open(image_path).convert("RGB")
-        image_tensor = pil_to_tensor(image).float() / 255.0
+        # Ensure file handles are released immediately after decoding image data.
+        with Image.open(image_path) as image:
+            image = image.convert("RGB")
+            image_tensor = pil_to_tensor(image).float() / 255.0
 
         ann_ids = self.coco.getAnnIds(imgIds=image_id)
         anns = self.coco.loadAnns(ann_ids)
@@ -168,6 +170,12 @@ def parse_args():
         default=True,
         help="Keep DataLoader workers alive between epochs (default: enabled)",
     )
+    parser.add_argument(
+        "--fd-safe-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If too many open files occurs, rebuild loaders with fewer workers (default: enabled)",
+    )
     parser.add_argument("--lr", type=float, default=0.005)
     parser.add_argument("--weight-decay", type=float, default=0.0005)
     parser.add_argument("--resume", default=None)
@@ -185,33 +193,37 @@ def main():
         torch.backends.cudnn.allow_tf32 = True
         torch.set_float32_matmul_precision("high")
 
-    loader_kwargs = {
-        "num_workers": args.num_workers,
-        "collate_fn": collate_fn,
-        "pin_memory": device.type == "cuda",
-    }
-    if args.num_workers > 0:
-        loader_kwargs["persistent_workers"] = args.persistent_workers
-        loader_kwargs["prefetch_factor"] = args.prefetch_factor
-
     train_ds = CocoInstanceDataset(args.train_images, args.train_annotations)
     num_classes = len(train_ds.label_to_name) + 1
 
+    def build_loader_kwargs(worker_count: int):
+        kwargs = {
+            "num_workers": worker_count,
+            "collate_fn": collate_fn,
+            "pin_memory": device.type == "cuda",
+        }
+        if worker_count > 0:
+            kwargs["persistent_workers"] = args.persistent_workers
+            kwargs["prefetch_factor"] = args.prefetch_factor
+        return kwargs
+
+    effective_num_workers = max(0, int(args.num_workers))
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
         shuffle=True,
-        **loader_kwargs,
+        **build_loader_kwargs(effective_num_workers),
     )
 
     val_loader = None
+    val_ds = None
     if args.val_images and args.val_annotations:
         val_ds = CocoInstanceDataset(args.val_images, args.val_annotations)
         val_loader = DataLoader(
             val_ds,
             batch_size=1,
             shuffle=False,
-            **loader_kwargs,
+            **build_loader_kwargs(effective_num_workers),
         )
 
     model = build_model(num_classes=num_classes).to(device)
@@ -238,14 +250,64 @@ def main():
     out_dir = Path(args.output_dir)
     class_names = {str(k): v for k, v in train_ds.label_to_name.items()}
 
+    def maybe_rebuild_loaders_on_fd_limit(error: Exception):
+        nonlocal train_loader, val_loader, effective_num_workers
+
+        message = str(error).lower()
+        if "too many open files" not in message:
+            return False
+        if not args.fd_safe_fallback:
+            return False
+        if effective_num_workers == 0:
+            return False
+
+        new_workers = max(0, effective_num_workers // 2)
+        if new_workers == effective_num_workers:
+            new_workers = 0
+
+        print(
+            "Encountered file descriptor limit. "
+            f"Rebuilding DataLoaders with num_workers={new_workers} (was {effective_num_workers})."
+        )
+
+        effective_num_workers = new_workers
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=args.batch_size,
+            shuffle=True,
+            **build_loader_kwargs(effective_num_workers),
+        )
+
+        if val_ds is not None:
+            val_loader = DataLoader(
+                val_ds,
+                batch_size=1,
+                shuffle=False,
+                **build_loader_kwargs(effective_num_workers),
+            )
+
+        return True
+
     for epoch in range(start_epoch, args.epochs):
-        train_loss = train_one_epoch(model, train_loader, optimizer, scaler, device)
+        try:
+            train_loss = train_one_epoch(model, train_loader, optimizer, scaler, device)
+        except OSError as error:
+            if maybe_rebuild_loaders_on_fd_limit(error):
+                train_loss = train_one_epoch(model, train_loader, optimizer, scaler, device)
+            else:
+                raise
         scheduler.step()
 
         print(f"epoch={epoch + 1}/{args.epochs} train_loss={train_loss:.4f}")
 
         if val_loader is not None:
-            val_pred_count = run_quick_val(model, val_loader, device)
+            try:
+                val_pred_count = run_quick_val(model, val_loader, device)
+            except OSError as error:
+                if maybe_rebuild_loaders_on_fd_limit(error):
+                    val_pred_count = run_quick_val(model, val_loader, device)
+                else:
+                    raise
             print(f"epoch={epoch + 1}/{args.epochs} val_pred_instances={val_pred_count}")
 
         save_checkpoint(out_dir / "last.pt", model, optimizer, epoch, train_loss, class_names)
