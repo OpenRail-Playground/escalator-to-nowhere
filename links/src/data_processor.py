@@ -57,19 +57,20 @@ class DataProcessor:
         tps_data = self.gleis_enhanced_tps_data()
         tps_data = tps_data[tps_data['oeffentliche_flaeche'] == 'X'].drop(columns=['oeffentliche_flaeche'])
         aufzug_data = self.load_and_filter_csv(AUFZUG_TABLE_NAME + ".csv", AUFZUG_COLUMNS)
+        aufzug_data = aufzug_data[aufzug_data['technischer_platz'].isin(tps_data['id'])]
 
         temp_dir = os.path.join(os.path.dirname(self.data_dir), "temp")
         os.makedirs(temp_dir, exist_ok=True)
-        tps_data.to_csv(os.path.join(temp_dir, "tps_data.csv"), index=False)
-        aufzug_data.to_csv(os.path.join(temp_dir, "aufzug_data.csv"), index=False)
+        tps_data.sort_values(by="bahnhof").to_csv(os.path.join(temp_dir, "tps_data.csv"), index=False)
+        aufzug_data.sort_values(by="bahnhof").to_csv(os.path.join(temp_dir, "aufzug_data.csv"), index=False)
 
         return tps_data, aufzug_data
 
 
     def get_context_data(self, bahnhof_id: int) -> dict:
         """Processes specific files and returns a dictionary of data."""
-        tps_data = self.tps_data[self.tps_data['bahnhof'] == bahnhof_id]
-        equipment_data = self.equipment_data[self.equipment_data['bahnhof'] == bahnhof_id]
+        tps_data = self.tps_data[self.tps_data['bahnhof'] == bahnhof_id].drop(columns=['bahnhof'])
+        equipment_data = self.equipment_data[self.equipment_data['bahnhof'] == bahnhof_id].drop(columns=['bahnhof'])
 
         tps_json = tps_data.to_json(orient="records")
         aufzug_json = equipment_data.to_json(orient="records")
