@@ -105,8 +105,8 @@ def train_one_epoch(model, loader, optimizer, scaler, device):
     running_loss = 0.0
 
     for images, targets in tqdm(loader, desc="train", leave=False):
-        images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        images = [img.to(device, non_blocking=True) for img in images]
+        targets = [{k: v.to(device, non_blocking=True) for k, v in t.items()} for t in targets]
 
         optimizer.zero_grad(set_to_none=True)
 
@@ -129,7 +129,7 @@ def run_quick_val(model, loader, device):
 
     with torch.no_grad():
         for images, _ in tqdm(loader, desc="val", leave=False):
-            images = [img.to(device) for img in images]
+            images = [img.to(device, non_blocking=True) for img in images]
             outputs = model(images)
             total_preds += sum(int(o["scores"].shape[0]) for o in outputs)
 
@@ -151,6 +151,7 @@ def save_checkpoint(path, model, optimizer, epoch, train_loss, class_names):
 
 
 def parse_args():
+    default_device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     parser = argparse.ArgumentParser(description="Train Mask R-CNN for platform instance segmentation")
     parser.add_argument("--train-images", required=True)
     parser.add_argument("--train-annotations", required=True)
@@ -160,16 +161,38 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--prefetch-factor", type=int, default=2)
+    parser.add_argument(
+        "--persistent-workers",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep DataLoader workers alive between epochs (default: enabled)",
+    )
     parser.add_argument("--lr", type=float, default=0.005)
     parser.add_argument("--weight-decay", type=float, default=0.0005)
     parser.add_argument("--resume", default=None)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--device", default=default_device)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     device = torch.device(args.device)
+
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
+
+    loader_kwargs = {
+        "num_workers": args.num_workers,
+        "collate_fn": collate_fn,
+        "pin_memory": device.type == "cuda",
+    }
+    if args.num_workers > 0:
+        loader_kwargs["persistent_workers"] = args.persistent_workers
+        loader_kwargs["prefetch_factor"] = args.prefetch_factor
 
     train_ds = CocoInstanceDataset(args.train_images, args.train_annotations)
     num_classes = len(train_ds.label_to_name) + 1
@@ -178,8 +201,7 @@ def main():
         train_ds,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=args.num_workers,
-        collate_fn=collate_fn,
+        **loader_kwargs,
     )
 
     val_loader = None
@@ -189,8 +211,7 @@ def main():
             val_ds,
             batch_size=1,
             shuffle=False,
-            num_workers=args.num_workers,
-            collate_fn=collate_fn,
+            **loader_kwargs,
         )
 
     model = build_model(num_classes=num_classes).to(device)

@@ -60,6 +60,7 @@ def run_inference(model, image_path: Path, score_threshold: float, device):
 
 
 def parse_args():
+    default_device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     parser = argparse.ArgumentParser(description="Run Mask R-CNN inference on platform images")
     parser.add_argument("--weights", required=True)
     parser.add_argument("--image", default=None)
@@ -67,7 +68,7 @@ def parse_args():
     parser.add_argument("--output", default=None)
     parser.add_argument("--output-dir", default="predictions")
     parser.add_argument("--score-threshold", type=float, default=0.5)
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--device", default=default_device)
     return parser.parse_args()
 
 
