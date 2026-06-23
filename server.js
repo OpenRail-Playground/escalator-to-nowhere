@@ -15,9 +15,9 @@ const OVERPASS_ENDPOINTS = [
 ];
 const platformCache = new Map();
 const wmsCache = new Map();
-const CACHE_TTL_MS = 60 * 60 * 1000;
-const PLATFORM_CACHE_MAX_ENTRIES = 300;
-const WMS_CACHE_MAX_ENTRIES = 800;
+const CACHE_TTL_MS = 60 * 60 * 10000;
+const PLATFORM_CACHE_MAX_ENTRIES = 30000;
+const WMS_CACHE_MAX_ENTRIES = 80000;
 const cacheStats = {
   platform: {
     hits: 0,

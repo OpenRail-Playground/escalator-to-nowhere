@@ -4,7 +4,7 @@ import random
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
@@ -23,14 +23,19 @@ def parse_args():
         description="Split exported image/geojson pairs into train/val/test by station id"
     )
     parser.add_argument(
+        "--raw-dir",
+        default="raw",
+        help="Root directory containing images/ and labels/ subfolders (default: raw)",
+    )
+    parser.add_argument(
         "--source-images",
-        required=True,
-        help="Directory containing exported image tiles",
+        default=None,
+        help="Directory containing exported image tiles (overrides --raw-dir/images)",
     )
     parser.add_argument(
         "--source-labels",
-        required=True,
-        help="Directory containing exported geojson labels",
+        default=None,
+        help="Directory containing exported geojson labels (overrides --raw-dir/labels)",
     )
     parser.add_argument(
         "--output-root",
@@ -48,8 +53,9 @@ def parse_args():
     )
     parser.add_argument(
         "--clean-output",
-        action="store_true",
-        help="Delete existing output split folders before writing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Clean existing split images/labels before writing (default: enabled)",
     )
     return parser.parse_args()
 
@@ -143,10 +149,19 @@ def allocate_stations(
 def ensure_output_dirs(output_root: Path, clean_output: bool):
     for split in ("train", "val", "test"):
         split_dir = output_root / split
-        if clean_output and split_dir.exists():
-            shutil.rmtree(split_dir)
-        (split_dir / "images").mkdir(parents=True, exist_ok=True)
-        (split_dir / "labels").mkdir(parents=True, exist_ok=True)
+        images_dir = split_dir / "images"
+        labels_dir = split_dir / "labels"
+
+        images_dir.mkdir(parents=True, exist_ok=True)
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
+        if clean_output:
+            for folder in (images_dir, labels_dir):
+                for child in folder.iterdir():
+                    if child.is_file() or child.is_symlink():
+                        child.unlink()
+                    elif child.is_dir():
+                        shutil.rmtree(child)
 
 
 def transfer_file(src: Path, dst: Path, move: bool):
@@ -156,14 +171,69 @@ def transfer_file(src: Path, dst: Path, move: bool):
         shutil.copy2(str(src), str(dst))
 
 
+def resolve_sources(
+    raw_dir_arg: str,
+    source_images_arg: Optional[str],
+    source_labels_arg: Optional[str],
+) -> Tuple[Path, Path, List[Path]]:
+    if source_images_arg and source_labels_arg:
+        return Path(source_images_arg), Path(source_labels_arg), []
+
+    script_dir = Path(__file__).resolve().parent
+    cwd = Path.cwd()
+    raw_arg = Path(raw_dir_arg)
+
+    candidates: List[Path] = []
+    if raw_arg.is_absolute():
+        candidates.append(raw_arg)
+    else:
+        candidates.extend(
+            [
+                cwd / raw_arg,
+                script_dir / raw_arg,
+                script_dir.parent / raw_arg,
+            ]
+        )
+
+    seen: set = set()
+    unique_candidates: List[Path] = []
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_candidates.append(resolved)
+
+    for candidate in unique_candidates:
+        source_images = candidate / "images"
+        source_labels = candidate / "labels"
+        if source_images.exists() and source_labels.exists():
+            return source_images, source_labels, unique_candidates
+
+    fallback_base = unique_candidates[0] if unique_candidates else (cwd / raw_arg).resolve()
+    return fallback_base / "images", fallback_base / "labels", unique_candidates
+
+
 def main():
     args = parse_args()
-    source_images = Path(args.source_images)
-    source_labels = Path(args.source_labels)
+
+    source_images, source_labels, raw_candidates = resolve_sources(
+        args.raw_dir,
+        args.source_images,
+        args.source_labels,
+    )
     output_root = Path(args.output_root)
 
     if not source_images.exists() or not source_labels.exists():
-        raise FileNotFoundError("Source images/labels directory not found")
+        searched = "\n".join(f"  - {p}" for p in raw_candidates) if raw_candidates else "  - (explicit --source-images/--source-labels used)"
+        raise FileNotFoundError(
+            "Source images/labels directory not found.\n"
+            f"Resolved images: {source_images}\n"
+            f"Resolved labels: {source_labels}\n"
+            "Checked raw directory candidates:\n"
+            f"{searched}\n"
+            "Expected structure: <raw>/images/*.png and <raw>/labels/*.geojson"
+        )
 
     pairs = collect_pairs(source_images, source_labels)
     if not pairs:

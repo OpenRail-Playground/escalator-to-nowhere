@@ -2,3 +2,4 @@
 *.geojson
 manifest.json
 raw/
+*.json

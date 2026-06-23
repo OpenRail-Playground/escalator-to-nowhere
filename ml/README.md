@@ -67,6 +67,19 @@ To avoid leakage, split using station IDs first:
 
 ```bash
 python split_dataset_by_station.py \
+  --raw-dir raw \
+  --output-root data \
+  --train-ratio 0.7 \
+  --val-ratio 0.15 \
+  --test-ratio 0.15 \
+  --seed 42 \
+  --clean-output
+```
+
+Equivalent explicit form:
+
+```bash
+python split_dataset_by_station.py \
   --source-images raw/images \
   --source-labels raw/labels \
   --output-root data \
@@ -99,6 +112,7 @@ python train_instance_segmentation.py \
 ```
 
 Outputs:
+
 - `best.pt` best training loss checkpoint
 - `last.pt` latest checkpoint
 
