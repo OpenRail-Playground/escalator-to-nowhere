@@ -117,8 +117,35 @@
             background: #9a6700;
         }
 
+        #exportPlatformsBtn {
+            border: 1px solid #1f6feb;
+            background: #1f6feb;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #exportPlatformsBtn:hover {
+            background: #1554b2;
+        }
+
+        #exportPlatformsBtn:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+        }
+
         #platformStatus {
             margin: 8px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #exportStatus {
+            margin: 6px 2px 0;
             color: #57606a;
             font-size: 12px;
             min-height: 16px;
@@ -213,8 +240,10 @@
         <div class="panel-title">Train Platforms</div>
         <div class="search-row">
             <button id="loadPlatformsBtn" type="button">Load In Current View</button>
+            <button id="exportPlatformsBtn" type="button">Export Images</button>
         </div>
         <div id="platformStatus"></div>
+        <div id="exportStatus"></div>
     </div>
     <div id="map"></div>
     <div class="coords-bar">
@@ -281,7 +310,9 @@
         const wmsLayerNameInput = document.getElementById("wmsLayerName");
         const addWmsBtn = document.getElementById("addWmsBtn");
         const loadPlatformsBtn = document.getElementById("loadPlatformsBtn");
+        const exportPlatformsBtn = document.getElementById("exportPlatformsBtn");
         const platformStatus = document.getElementById("platformStatus");
+        const exportStatus = document.getElementById("exportStatus");
         const aerialOpacityInput = document.getElementById("aerialOpacity");
         const aerialOpacityValue = document.getElementById("aerialOpacityValue");
         const wmsStatus = document.getElementById("wmsStatus");
@@ -293,6 +324,9 @@
         let aerialOverlayLabel;
         let platformRequestId = 0;
         const platformMinZoom = 15;
+        const aerialLayerAliases = {
+            "Orthophotos Publiziert": "Inframaps:Orthophotos_Publiziert",
+        };
 
         function getAerialOpacity() {
             return Number(aerialOpacityInput.value) / 100;
@@ -404,12 +438,14 @@
             });
         }
 
+        function resolveAerialLayerName() {
+            const rawLayerName = wmsLayerNameInput.value.trim();
+            return aerialLayerAliases[rawLayerName] || rawLayerName;
+        }
+
         function addAerialOverlay() {
             const rawLayerName = wmsLayerNameInput.value.trim();
-            const layerNameAliases = {
-                "Orthophotos Publiziert": "Inframaps:Orthophotos_Publiziert",
-            };
-            const layerName = layerNameAliases[rawLayerName] || rawLayerName;
+            const layerName = resolveAerialLayerName();
 
             if (!layerName) {
                 wmsStatus.textContent = "Enter a WMS layer name (workspace:layer_name).";
@@ -435,6 +471,17 @@
                 openRailwayMap.bringToFront();
             }
             wmsStatus.textContent = `Overlay loaded: ${layerName} (native zoom up to ${aerialMaxNativeZoom})`;
+        }
+
+        function attachPlatformMeta(layer, element) {
+            const tags = element && element.tags ? element.tags : {};
+            layer.platformMeta = {
+                type: element.type,
+                id: element.id,
+                ref: tags.ref || "",
+                ifopt: tags["ref:IFOPT"] || "",
+            };
+            return layer;
         }
 
         function buildBufferedPlatformPolygon(latLngs) {
@@ -485,10 +532,14 @@
                 const isClosed = first[0] === last[0] && first[1] === last[1];
 
                 if (isClosed && latLngs.length >= 4) {
-                    return L.polygon(latLngs, platformFillStyle).bindTooltip("Platform");
+                    return attachPlatformMeta(
+                        L.polygon(latLngs, platformFillStyle).bindTooltip("Platform"),
+                        element,
+                    );
                 }
 
-                return buildBufferedPlatformPolygon(latLngs);
+                const buffered = buildBufferedPlatformPolygon(latLngs);
+                return buffered ? attachPlatformMeta(buffered, element) : null;
             }
 
             if (element.type === "relation" && Array.isArray(element.members)) {
@@ -509,7 +560,10 @@
                     .filter((latLngs) => latLngs.length >= 4);
 
                 if (outerRings.length > 0) {
-                    return L.polygon(outerRings, platformFillStyle).bindTooltip("Platform");
+                    return attachPlatformMeta(
+                        L.polygon(outerRings, platformFillStyle).bindTooltip("Platform"),
+                        element,
+                    );
                 }
             }
 
@@ -571,6 +625,190 @@
             }
         }
 
+        function flattenGeoJsonRings(geometry) {
+            if (!geometry || !geometry.type || !Array.isArray(geometry.coordinates)) {
+                return [];
+            }
+
+            if (geometry.type === "Polygon") {
+                return geometry.coordinates.map((ring) => ring.map((coord) => L.latLng(coord[1], coord[0])));
+            }
+
+            if (geometry.type === "MultiPolygon") {
+                return geometry.coordinates.flatMap((polygon) =>
+                    polygon.map((ring) => ring.map((coord) => L.latLng(coord[1], coord[0]))),
+                );
+            }
+
+            return [];
+        }
+
+        function buildExportName(index, layer) {
+            const meta = layer.platformMeta || {};
+            const base = meta.ref || meta.ifopt || `${meta.type || "platform"}-${meta.id || index + 1}`;
+            const safe = String(base)
+                .replace(/[^a-zA-Z0-9_-]+/g, "_")
+                .replace(/^_+|_+$/g, "")
+                .slice(0, 80) || `platform_${index + 1}`;
+            return `platform_${String(index + 1).padStart(3, "0")}_${safe}.png`;
+        }
+
+        function getProjectedBoundsFromRings(rings) {
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
+
+            rings.forEach((ring) => {
+                ring.forEach((latLng) => {
+                    const projected = map.options.crs.project(latLng);
+                    minX = Math.min(minX, projected.x);
+                    minY = Math.min(minY, projected.y);
+                    maxX = Math.max(maxX, projected.x);
+                    maxY = Math.max(maxY, projected.y);
+                });
+            });
+
+            return { minX, minY, maxX, maxY };
+        }
+
+        function computeExportImageSize(bounds) {
+            const targetMax = 1800;
+            const widthMeters = Math.max(bounds.maxX - bounds.minX, 1);
+            const heightMeters = Math.max(bounds.maxY - bounds.minY, 1);
+            const ratio = widthMeters / heightMeters;
+
+            if (ratio >= 1) {
+                return { width: targetMax, height: Math.max(256, Math.round(targetMax / ratio)) };
+            }
+
+            return { width: Math.max(256, Math.round(targetMax * ratio)), height: targetMax };
+        }
+
+        async function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error("Failed to load aerial image"));
+                image.src = src;
+            });
+        }
+
+        function clipPlatformRingsToCanvas(ctx, rings, projectedBounds, width, height) {
+            const scaleX = width / Math.max(projectedBounds.maxX - projectedBounds.minX, 1);
+            const scaleY = height / Math.max(projectedBounds.maxY - projectedBounds.minY, 1);
+
+            ctx.beginPath();
+            rings.forEach((ring) => {
+                ring.forEach((latLng, index) => {
+                    const projected = map.options.crs.project(latLng);
+                    const x = (projected.x - projectedBounds.minX) * scaleX;
+                    const y = height - (projected.y - projectedBounds.minY) * scaleY;
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.closePath();
+            });
+            ctx.clip("evenodd");
+        }
+
+        async function exportPlatformImage(layerName, layer, index) {
+            const geoJson = layer.toGeoJSON();
+            const rings = flattenGeoJsonRings(geoJson.geometry);
+            if (rings.length === 0) {
+                return false;
+            }
+
+            const projectedBounds = getProjectedBoundsFromRings(rings);
+            if (!Number.isFinite(projectedBounds.minX) || !Number.isFinite(projectedBounds.maxX)) {
+                return false;
+            }
+
+            const size = computeExportImageSize(projectedBounds);
+            const params = new URLSearchParams({
+                service: "WMS",
+                request: "GetMap",
+                layers: layerName,
+                styles: "",
+                format: "image/png",
+                transparent: "true",
+                version: "1.1.1",
+                srs: "EPSG:3857",
+                bbox: `${projectedBounds.minX},${projectedBounds.minY},${projectedBounds.maxX},${projectedBounds.maxY}`,
+                width: String(size.width),
+                height: String(size.height),
+            });
+
+            const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+            const sourceCanvas = document.createElement("canvas");
+            sourceCanvas.width = size.width;
+            sourceCanvas.height = size.height;
+            const sourceCtx = sourceCanvas.getContext("2d");
+            sourceCtx.drawImage(sourceImage, 0, 0, size.width, size.height);
+
+            const outputCanvas = document.createElement("canvas");
+            outputCanvas.width = size.width;
+            outputCanvas.height = size.height;
+            const outputCtx = outputCanvas.getContext("2d");
+            outputCtx.save();
+            clipPlatformRingsToCanvas(outputCtx, rings, projectedBounds, size.width, size.height);
+            outputCtx.drawImage(sourceCanvas, 0, 0);
+            outputCtx.restore();
+
+            const downloadName = buildExportName(index, layer);
+            const dataUrl = outputCanvas.toDataURL("image/png");
+            const downloadLink = document.createElement("a");
+            downloadLink.href = dataUrl;
+            downloadLink.download = downloadName;
+            downloadLink.click();
+
+            return true;
+        }
+
+        async function exportPlatforms() {
+            const layerName = resolveAerialLayerName();
+            if (!layerName) {
+                exportStatus.textContent = "Set a valid aerial layer name first.";
+                return;
+            }
+
+            const platformFeatures = [];
+            platformLayer.eachLayer((layer) => {
+                if (typeof layer.toGeoJSON === "function") {
+                    const geometry = layer.toGeoJSON().geometry;
+                    if (geometry && (geometry.type === "Polygon" || geometry.type === "MultiPolygon")) {
+                        platformFeatures.push(layer);
+                    }
+                }
+            });
+
+            if (platformFeatures.length === 0) {
+                exportStatus.textContent = "No platform polygons available. Load platforms first.";
+                return;
+            }
+
+            exportPlatformsBtn.disabled = true;
+            let exportedCount = 0;
+
+            try {
+                for (let index = 0; index < platformFeatures.length; index += 1) {
+                    exportStatus.textContent = `Exporting ${index + 1}/${platformFeatures.length}...`;
+                    const didExport = await exportPlatformImage(layerName, platformFeatures[index], index);
+                    if (didExport) {
+                        exportedCount += 1;
+                    }
+                }
+                exportStatus.textContent = `Exported ${exportedCount} image${exportedCount === 1 ? "" : "s"}.`;
+            } catch (error) {
+                exportStatus.textContent = "Export failed. Ensure aerial layer is available and try again.";
+            } finally {
+                exportPlatformsBtn.disabled = false;
+            }
+        }
+
         addWmsBtn.addEventListener("click", addAerialOverlay);
         wmsLayerNameInput.addEventListener("keydown", (event) => {
             if (event.key === "Enter") {
@@ -588,6 +826,7 @@
         });
 
         loadPlatformsBtn.addEventListener("click", loadPlatformsInView);
+        exportPlatformsBtn.addEventListener("click", exportPlatforms);
 
         aerialOpacityValue.textContent = `${aerialOpacityInput.value}%`;
 
