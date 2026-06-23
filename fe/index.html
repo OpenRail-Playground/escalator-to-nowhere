@@ -286,7 +286,22 @@
             fillColor: "#facc15",
             fillOpacity: 0.35,
         };
+        const smallPlatformFillStyle = {
+            pane: "platformPane",
+            color: "#dc2626",
+            weight: 2,
+            fillColor: "#ef4444",
+            fillOpacity: 0.45,
+        };
+        const nonInfraPlatformFillStyle = {
+            pane: "platformPane",
+            color: "#1d4ed8",
+            weight: 2,
+            fillColor: "#3b82f6",
+            fillOpacity: 0.4,
+        };
         const platformBufferWidthMeters = 3;
+        const smallPlatformAreaThresholdSqm = 20;
 
         osmStandard.addTo(map);
         openRailwayMap.addTo(map);
@@ -475,12 +490,57 @@
 
         function attachPlatformMeta(layer, element) {
             const tags = element && element.tags ? element.tags : {};
+            const operator = tags.operator || "";
+            const operatorWikidata = tags["operator:wikidata"] || "";
+            const operatorLower = operator.toLowerCase();
+            const normalizedOperator = operatorLower.replace(/[^a-z0-9]+/g, "");
+            const isDbInfrago = normalizedOperator.includes("dbinfrago");
+            const isInfraObject = isDbInfrago || operatorLower.includes("infra") || operatorWikidata === "Q122870674";
+
             layer.platformMeta = {
                 type: element.type,
                 id: element.id,
                 ref: tags.ref || "",
                 ifopt: tags["ref:IFOPT"] || "",
+                stationId: tags["ref:station"] || tags["uic_ref"] || tags["uic:ref"] || tags["railway:ref"] || "",
+                ds100: tags["ref:DS100"] || "",
+                localRef: tags["local_ref"] || "",
+                operator,
+                operatorWikidata,
+                isInfraObject,
             };
+            return layer;
+        }
+
+        function applyPlatformClassificationStyle(layer) {
+            if (typeof turf === "undefined" || !layer || typeof layer.toGeoJSON !== "function") {
+                return layer;
+            }
+
+            const feature = layer.toGeoJSON();
+            if (!feature || !feature.geometry) {
+                return layer;
+            }
+
+            const geometryType = feature.geometry.type;
+            if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") {
+                return layer;
+            }
+
+            const areaSqm = turf.area(feature);
+            const isInfraObject = !!(layer.platformMeta && layer.platformMeta.isInfraObject);
+
+            if (!isInfraObject && typeof layer.setStyle === "function") {
+                layer.setStyle(nonInfraPlatformFillStyle);
+                layer.bindTooltip(`Platform (non-infra: ${areaSqm.toFixed(1)} sqm)`);
+                return layer;
+            }
+
+            if (areaSqm < smallPlatformAreaThresholdSqm && typeof layer.setStyle === "function") {
+                layer.setStyle(smallPlatformFillStyle);
+                layer.bindTooltip(`Platform (small: ${areaSqm.toFixed(1)} sqm)`);
+            }
+
             return layer;
         }
 
@@ -532,14 +592,16 @@
                 const isClosed = first[0] === last[0] && first[1] === last[1];
 
                 if (isClosed && latLngs.length >= 4) {
-                    return attachPlatformMeta(
-                        L.polygon(latLngs, platformFillStyle).bindTooltip("Platform"),
-                        element,
+                    return applyPlatformClassificationStyle(
+                        attachPlatformMeta(
+                            L.polygon(latLngs, platformFillStyle).bindTooltip("Platform"),
+                            element,
+                        ),
                     );
                 }
 
                 const buffered = buildBufferedPlatformPolygon(latLngs);
-                return buffered ? attachPlatformMeta(buffered, element) : null;
+                return buffered ? applyPlatformClassificationStyle(attachPlatformMeta(buffered, element)) : null;
             }
 
             if (element.type === "relation" && Array.isArray(element.members)) {
@@ -560,14 +622,40 @@
                     .filter((latLngs) => latLngs.length >= 4);
 
                 if (outerRings.length > 0) {
-                    return attachPlatformMeta(
-                        L.polygon(outerRings, platformFillStyle).bindTooltip("Platform"),
-                        element,
+                    return applyPlatformClassificationStyle(
+                        attachPlatformMeta(
+                            L.polygon(outerRings, platformFillStyle).bindTooltip("Platform"),
+                            element,
+                        ),
                     );
                 }
             }
 
             return null;
+        }
+
+        function collectPlatformRelationWayRefs(elements) {
+            const wayRefs = new Set();
+
+            elements.forEach((element) => {
+                if (element.type !== "relation" || !Array.isArray(element.members)) {
+                    return;
+                }
+
+                const tags = element.tags || {};
+                const isPlatformRelation = tags.railway === "platform" || tags.public_transport === "platform";
+                if (!isPlatformRelation) {
+                    return;
+                }
+
+                element.members.forEach((member) => {
+                    if (member.type === "way" && Number.isFinite(member.ref)) {
+                        wayRefs.add(member.ref);
+                    }
+                });
+            });
+
+            return wayRefs;
         }
 
         async function loadPlatformsInView() {
@@ -610,8 +698,14 @@
                     }
                 });
 
+                const platformRelationWayRefs = collectPlatformRelationWayRefs(data.elements);
+
                 let count = 0;
                 data.elements.forEach((element) => {
+                    if (element.type === "way" && platformRelationWayRefs.has(element.id)) {
+                        return;
+                    }
+
                     const feature = buildPlatformFeature(element, wayGeometriesById);
                     if (feature) {
                         platformLayer.addLayer(feature);
@@ -643,17 +737,48 @@
             return [];
         }
 
-        function buildExportName(index, layer) {
-            const meta = layer.platformMeta || {};
-            const base = meta.ref || meta.ifopt || `${meta.type || "platform"}-${meta.id || index + 1}`;
-            const safe = String(base)
+        function sanitizeFileNameSegment(value) {
+            return String(value)
                 .replace(/[^a-zA-Z0-9_-]+/g, "_")
                 .replace(/^_+|_+$/g, "")
-                .slice(0, 80) || `platform_${index + 1}`;
-            return `platform_${String(index + 1).padStart(3, "0")}_${safe}.png`;
+                .slice(0, 60);
         }
 
-        function getProjectedBoundsFromRings(rings) {
+        function extractStationId(meta) {
+            if (meta.stationId) {
+                return meta.stationId;
+            }
+
+            if (meta.ifopt) {
+                const parts = meta.ifopt.split(":").filter(Boolean);
+                if (parts.length >= 3) {
+                    return parts[parts.length - 2];
+                }
+            }
+
+            return "unknown_station";
+        }
+
+        function buildExportName(index, layer, partIndex) {
+            const meta = layer.platformMeta || {};
+            const stationId = sanitizeFileNameSegment(extractStationId(meta)) || "unknown_station";
+
+            const additionalSegments = [
+                meta.ref ? `platform_${meta.ref}` : "",
+                meta.localRef ? `local_${meta.localRef}` : "",
+                meta.ds100 ? `ds100_${meta.ds100}` : "",
+                meta.ifopt ? `ifopt_${meta.ifopt}` : "",
+                meta.type && meta.id ? `${meta.type}_${meta.id}` : "",
+            ]
+                .map((segment) => sanitizeFileNameSegment(segment))
+                .filter(Boolean);
+
+            const suffix = additionalSegments.join("_").slice(0, 140);
+            const partSuffix = partIndex > 0 ? `_part_${String(partIndex + 1).padStart(3, "0")}` : "";
+            return `${stationId}_${String(index + 1).padStart(3, "0")}_${suffix || "platform"}${partSuffix}.png`;
+        }
+
+        function getPixelBoundsFromRings(rings, zoom) {
             let minX = Infinity;
             let minY = Infinity;
             let maxX = -Infinity;
@@ -661,28 +786,44 @@
 
             rings.forEach((ring) => {
                 ring.forEach((latLng) => {
-                    const projected = map.options.crs.project(latLng);
-                    minX = Math.min(minX, projected.x);
-                    minY = Math.min(minY, projected.y);
-                    maxX = Math.max(maxX, projected.x);
-                    maxY = Math.max(maxY, projected.y);
+                    const pixelPoint = map.options.crs.latLngToPoint(latLng, zoom);
+                    minX = Math.min(minX, pixelPoint.x);
+                    minY = Math.min(minY, pixelPoint.y);
+                    maxX = Math.max(maxX, pixelPoint.x);
+                    maxY = Math.max(maxY, pixelPoint.y);
                 });
             });
 
             return { minX, minY, maxX, maxY };
         }
 
-        function computeExportImageSize(bounds) {
-            const targetMax = 1800;
-            const widthMeters = Math.max(bounds.maxX - bounds.minX, 1);
-            const heightMeters = Math.max(bounds.maxY - bounds.minY, 1);
-            const ratio = widthMeters / heightMeters;
+        function getTileBoundsBboxMeters(tileX, tileY, zoom) {
+            const northWest = map.options.crs.pointToLatLng(L.point(tileX * 256, tileY * 256), zoom);
+            const southEast = map.options.crs.pointToLatLng(L.point((tileX + 1) * 256, (tileY + 1) * 256), zoom);
+            const projectedNW = map.options.crs.project(northWest);
+            const projectedSE = map.options.crs.project(southEast);
 
-            if (ratio >= 1) {
-                return { width: targetMax, height: Math.max(256, Math.round(targetMax / ratio)) };
-            }
+            return {
+                minX: projectedNW.x,
+                minY: projectedSE.y,
+                maxX: projectedSE.x,
+                maxY: projectedNW.y,
+            };
+        }
 
-            return { width: Math.max(256, Math.round(targetMax * ratio)), height: targetMax };
+        function buildTilePolygonFeature(tileX, tileY, zoom) {
+            const northWest = map.options.crs.pointToLatLng(L.point(tileX * 256, tileY * 256), zoom);
+            const southEast = map.options.crs.pointToLatLng(L.point((tileX + 1) * 256, (tileY + 1) * 256), zoom);
+            const southWest = L.latLng(southEast.lat, northWest.lng);
+            const northEast = L.latLng(northWest.lat, southEast.lng);
+
+            return turf.polygon([[
+                [northWest.lng, northWest.lat],
+                [northEast.lng, northEast.lat],
+                [southEast.lng, southEast.lat],
+                [southWest.lng, southWest.lat],
+                [northWest.lng, northWest.lat],
+            ]]);
         }
 
         async function loadImage(src) {
@@ -694,16 +835,15 @@
             });
         }
 
-        function clipPlatformRingsToCanvas(ctx, rings, projectedBounds, width, height) {
-            const scaleX = width / Math.max(projectedBounds.maxX - projectedBounds.minX, 1);
-            const scaleY = height / Math.max(projectedBounds.maxY - projectedBounds.minY, 1);
+        function clipPlatformRingsToTileCanvas(ctx, rings, zoom, tileX, tileY) {
+            const tileOrigin = L.point(tileX * 256, tileY * 256);
 
             ctx.beginPath();
             rings.forEach((ring) => {
                 ring.forEach((latLng, index) => {
-                    const projected = map.options.crs.project(latLng);
-                    const x = (projected.x - projectedBounds.minX) * scaleX;
-                    const y = height - (projected.y - projectedBounds.minY) * scaleY;
+                    const point = map.options.crs.latLngToPoint(latLng, zoom);
+                    const x = point.x - tileOrigin.x;
+                    const y = point.y - tileOrigin.y;
                     if (index === 0) {
                         ctx.moveTo(x, y);
                     } else {
@@ -715,57 +855,70 @@
             ctx.clip("evenodd");
         }
 
-        async function exportPlatformImage(layerName, layer, index) {
+        async function exportPlatformImages(layerName, layer, index) {
             const geoJson = layer.toGeoJSON();
             const rings = flattenGeoJsonRings(geoJson.geometry);
             if (rings.length === 0) {
-                return false;
+                return 0;
             }
 
-            const projectedBounds = getProjectedBoundsFromRings(rings);
-            if (!Number.isFinite(projectedBounds.minX) || !Number.isFinite(projectedBounds.maxX)) {
-                return false;
+            const feature = turf.feature(geoJson.geometry, geoJson.properties || {});
+            const exportZoom = Math.min(mapMaxZoom, aerialMaxNativeZoom);
+            const pixelBounds = getPixelBoundsFromRings(rings, exportZoom);
+            if (!Number.isFinite(pixelBounds.minX) || !Number.isFinite(pixelBounds.maxX)) {
+                return 0;
             }
 
-            const size = computeExportImageSize(projectedBounds);
-            const params = new URLSearchParams({
-                service: "WMS",
-                request: "GetMap",
-                layers: layerName,
-                styles: "",
-                format: "image/png",
-                transparent: "true",
-                version: "1.1.1",
-                srs: "EPSG:3857",
-                bbox: `${projectedBounds.minX},${projectedBounds.minY},${projectedBounds.maxX},${projectedBounds.maxY}`,
-                width: String(size.width),
-                height: String(size.height),
-            });
+            const minTileX = Math.floor(pixelBounds.minX / 256);
+            const maxTileX = Math.floor(pixelBounds.maxX / 256);
+            const minTileY = Math.floor(pixelBounds.minY / 256);
+            const maxTileY = Math.floor(pixelBounds.maxY / 256);
 
-            const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
-            const sourceCanvas = document.createElement("canvas");
-            sourceCanvas.width = size.width;
-            sourceCanvas.height = size.height;
-            const sourceCtx = sourceCanvas.getContext("2d");
-            sourceCtx.drawImage(sourceImage, 0, 0, size.width, size.height);
+            let exportedParts = 0;
 
-            const outputCanvas = document.createElement("canvas");
-            outputCanvas.width = size.width;
-            outputCanvas.height = size.height;
-            const outputCtx = outputCanvas.getContext("2d");
-            outputCtx.save();
-            clipPlatformRingsToCanvas(outputCtx, rings, projectedBounds, size.width, size.height);
-            outputCtx.drawImage(sourceCanvas, 0, 0);
-            outputCtx.restore();
+            for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+                for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+                    const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
+                    const intersects = turf.booleanIntersects(feature, tilePolygon);
+                    if (!intersects) {
+                        continue;
+                    }
 
-            const downloadName = buildExportName(index, layer);
-            const dataUrl = outputCanvas.toDataURL("image/png");
-            const downloadLink = document.createElement("a");
-            downloadLink.href = dataUrl;
-            downloadLink.download = downloadName;
-            downloadLink.click();
+                    const bbox = getTileBoundsBboxMeters(tileX, tileY, exportZoom);
+                    const params = new URLSearchParams({
+                        service: "WMS",
+                        request: "GetMap",
+                        layers: layerName,
+                        styles: "",
+                        format: "image/png",
+                        transparent: "true",
+                        version: "1.1.1",
+                        srs: "EPSG:3857",
+                        bbox: `${bbox.minX},${bbox.minY},${bbox.maxX},${bbox.maxY}`,
+                        width: "256",
+                        height: "256",
+                    });
 
-            return true;
+                    const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+                    const outputCanvas = document.createElement("canvas");
+                    outputCanvas.width = 256;
+                    outputCanvas.height = 256;
+                    const outputCtx = outputCanvas.getContext("2d");
+                    outputCtx.save();
+                    clipPlatformRingsToTileCanvas(outputCtx, rings, exportZoom, tileX, tileY);
+                    outputCtx.drawImage(sourceImage, 0, 0, 256, 256);
+                    outputCtx.restore();
+
+                    const dataUrl = outputCanvas.toDataURL("image/png");
+                    const downloadLink = document.createElement("a");
+                    downloadLink.href = dataUrl;
+                    downloadLink.download = buildExportName(index, layer, exportedParts);
+                    downloadLink.click();
+                    exportedParts += 1;
+                }
+            }
+
+            return exportedParts;
         }
 
         async function exportPlatforms() {
@@ -796,12 +949,10 @@
             try {
                 for (let index = 0; index < platformFeatures.length; index += 1) {
                     exportStatus.textContent = `Exporting ${index + 1}/${platformFeatures.length}...`;
-                    const didExport = await exportPlatformImage(layerName, platformFeatures[index], index);
-                    if (didExport) {
-                        exportedCount += 1;
-                    }
+                    const exportedParts = await exportPlatformImages(layerName, platformFeatures[index], index);
+                    exportedCount += exportedParts;
                 }
-                exportStatus.textContent = `Exported ${exportedCount} image${exportedCount === 1 ? "" : "s"}.`;
+                exportStatus.textContent = `Exported ${exportedCount} image${exportedCount === 1 ? "" : "s"} at max zoom.`;
             } catch (error) {
                 exportStatus.textContent = "Export failed. Ensure aerial layer is available and try again.";
             } finally {
