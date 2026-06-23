@@ -171,6 +171,63 @@
             min-height: 16px;
         }
 
+        #copyCoordsBtn,
+        #addPointBtn,
+        #clearPointsBtn {
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            color: #ffffff;
+        }
+
+        #copyCoordsBtn {
+            border: 1px solid #6d28d9;
+            background: #7c3aed;
+        }
+
+        #copyCoordsBtn:hover {
+            background: #6d28d9;
+        }
+
+        #addPointBtn {
+            border: 1px solid #0f766e;
+            background: #0d9488;
+        }
+
+        #addPointBtn:hover {
+            background: #0f766e;
+        }
+
+        #clearPointsBtn {
+            border: 1px solid #b45309;
+            background: #d97706;
+        }
+
+        #clearPointsBtn:hover {
+            background: #b45309;
+        }
+
+        #pointListInput {
+            width: 100%;
+            margin-top: 8px;
+            border: 1px solid #c9d1d9;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            font-family: Menlo, Consolas, Monaco, monospace;
+            min-height: 84px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        #pointStatus {
+            margin: 6px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
         .wms-opacity-row {
             margin-top: 8px;
             display: flex;
@@ -265,6 +322,15 @@
         </div>
         <div id="platformStatus"></div>
         <div id="exportStatus"></div>
+
+        <div class="panel-title">ML Export Points</div>
+        <div class="search-row">
+            <button id="copyCoordsBtn" type="button">Copy Clicked</button>
+            <button id="addPointBtn" type="button">Add Clicked</button>
+            <button id="clearPointsBtn" type="button">Clear Points</button>
+        </div>
+        <textarea id="pointListInput" placeholder="One point per line: lat, lon"></textarea>
+        <div id="pointStatus"></div>
     </div>
     <div id="map"></div>
     <div class="coords-bar">
@@ -301,6 +367,7 @@
         const aerialWmsUrl = "/wms";
         const aerialMaxNativeZoom = 19;
         const platformLayer = L.layerGroup();
+        const exportPointLayer = L.layerGroup();
         const platformFillStyle = {
             pane: "platformPane",
             color: "#f59e0b",
@@ -328,6 +395,7 @@
         osmStandard.addTo(map);
         openRailwayMap.addTo(map);
         platformLayer.addTo(map);
+        exportPointLayer.addTo(map);
 
         const baseLayers = {
             "OSM Standard": osmStandard,
@@ -335,6 +403,7 @@
         const overlayLayers = {
             "OpenRailwayMap": openRailwayMap,
             "Train Platforms": platformLayer,
+            "ML Export Points": exportPointLayer,
         };
         const layerControl = L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
 
@@ -351,6 +420,11 @@
         const exportMlBundleBtn = document.getElementById("exportMlBundleBtn");
         const platformStatus = document.getElementById("platformStatus");
         const exportStatus = document.getElementById("exportStatus");
+        const copyCoordsBtn = document.getElementById("copyCoordsBtn");
+        const addPointBtn = document.getElementById("addPointBtn");
+        const clearPointsBtn = document.getElementById("clearPointsBtn");
+        const pointListInput = document.getElementById("pointListInput");
+        const pointStatus = document.getElementById("pointStatus");
         const aerialOpacityInput = document.getElementById("aerialOpacity");
         const aerialOpacityValue = document.getElementById("aerialOpacityValue");
         const wmsStatus = document.getElementById("wmsStatus");
@@ -361,7 +435,10 @@
         let aerialOverlay;
         let aerialOverlayLabel;
         let platformRequestId = 0;
+        let lastClickedLatLng = null;
         const platformMinZoom = 15;
+        const mlPointSearchRadiusMeters = 800;
+        const minExportImageBytes = 5 * 1024;
         const aerialLayerAliases = {
             "Orthophotos Publiziert": "Inframaps:Orthophotos_Publiziert",
         };
@@ -372,6 +449,105 @@
 
         function formatCoords(lat, lon) {
             return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        }
+
+        function getActionLatLng() {
+            return lastClickedLatLng || map.getCenter();
+        }
+
+        async function copyTextToClipboard(text) {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+
+            const helper = document.createElement("textarea");
+            helper.value = text;
+            helper.setAttribute("readonly", "readonly");
+            helper.style.position = "absolute";
+            helper.style.left = "-9999px";
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand("copy");
+            document.body.removeChild(helper);
+        }
+
+        function parsePointLine(line) {
+            const normalized = line.trim();
+            if (!normalized) {
+                return null;
+            }
+
+            const parts = normalized.split(/[\s,;]+/).filter(Boolean);
+            if (parts.length < 2) {
+                return null;
+            }
+
+            const lat = Number(parts[0]);
+            const lng = Number(parts[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                return null;
+            }
+
+            return { lat, lng };
+        }
+
+        function parsePointListInput() {
+            const lines = pointListInput.value.split(/\r?\n/);
+            const points = [];
+            let invalidCount = 0;
+
+            lines.forEach((line) => {
+                if (!line.trim()) {
+                    return;
+                }
+
+                const point = parsePointLine(line);
+                if (point) {
+                    points.push(point);
+                } else {
+                    invalidCount += 1;
+                }
+            });
+
+            return { points, invalidCount };
+        }
+
+        function refreshExportPointPreview() {
+            const parsed = parsePointListInput();
+            exportPointLayer.clearLayers();
+
+            parsed.points.forEach((point, index) => {
+                L.circleMarker([point.lat, point.lng], {
+                    radius: 4,
+                    pane: "platformPane",
+                    color: "#7c3aed",
+                    fillColor: "#a78bfa",
+                    fillOpacity: 0.95,
+                    weight: 1,
+                })
+                    .bindTooltip(`P${index + 1}: ${formatCoords(point.lat, point.lng)}`)
+                    .addTo(exportPointLayer);
+            });
+
+            if (parsed.invalidCount > 0) {
+                pointStatus.textContent = `Loaded ${parsed.points.length} point${parsed.points.length === 1 ? "" : "s"}. Ignored ${parsed.invalidCount} invalid line${parsed.invalidCount === 1 ? "" : "s"}.`;
+                return;
+            }
+
+            pointStatus.textContent = `Loaded ${parsed.points.length} point${parsed.points.length === 1 ? "" : "s"}.`;
+        }
+
+        function appendPoint(point) {
+            const formatted = formatCoords(point.lat, point.lng);
+            const lines = pointListInput.value
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+
+            lines.push(formatted);
+            pointListInput.value = `${lines.join("\n")}\n`;
+            refreshExportPointPreview();
         }
 
         function clearResults() {
@@ -526,6 +702,7 @@
                 ref: tags.ref || "",
                 ifopt: tags["ref:IFOPT"] || "",
                 stationId: tags["ref:station"] || tags["uic_ref"] || tags["uic:ref"] || tags["railway:ref"] || "",
+                stationName: tags.name || "",
                 ds100: tags["ref:DS100"] || "",
                 localRef: tags["local_ref"] || "",
                 operator,
@@ -681,6 +858,171 @@
             return wayRefs;
         }
 
+        function buildBboxAroundPoint(lat, lng, radiusMeters) {
+            const latDelta = radiusMeters / 111320;
+            const cosLat = Math.cos((lat * Math.PI) / 180);
+            const lonDelta = radiusMeters / (111320 * Math.max(Math.abs(cosLat), 1e-6));
+
+            const south = Math.max(-90, lat - latDelta);
+            const north = Math.min(90, lat + latDelta);
+            const west = Math.max(-180, lng - lonDelta);
+            const east = Math.min(180, lng + lonDelta);
+
+            return `${south},${west},${north},${east}`;
+        }
+
+        function buildPlatformFeaturesFromElements(elements, seenPlatformKeys) {
+            const wayGeometriesById = new Map();
+            elements.forEach((element) => {
+                if (element.type === "way" && Number.isFinite(element.id) && Array.isArray(element.geometry)) {
+                    wayGeometriesById.set(element.id, element.geometry);
+                }
+            });
+
+            const stationCandidates = buildStationCandidates(elements, wayGeometriesById);
+            const platformRelationWayRefs = collectPlatformRelationWayRefs(elements);
+            const features = [];
+
+            elements.forEach((element) => {
+                if (element.type === "way" && platformRelationWayRefs.has(element.id)) {
+                    return;
+                }
+
+                const feature = buildPlatformFeature(element, wayGeometriesById);
+                if (!feature) {
+                    return;
+                }
+
+                assignNearestStationMeta(feature, stationCandidates);
+
+                const meta = feature.platformMeta || {};
+                const featureKey = meta.type && Number.isFinite(meta.id) ? `${meta.type}:${meta.id}` : "";
+                if (featureKey && seenPlatformKeys && seenPlatformKeys.has(featureKey)) {
+                    return;
+                }
+
+                if (featureKey && seenPlatformKeys) {
+                    seenPlatformKeys.add(featureKey);
+                }
+                features.push(feature);
+            });
+
+            return features;
+        }
+
+        function getRepresentativeLatLng(element, wayGeometriesById) {
+            if (element.type === "node" && Number.isFinite(element.lat) && Number.isFinite(element.lon)) {
+                return L.latLng(element.lat, element.lon);
+            }
+
+            const allPoints = [];
+            if (Array.isArray(element.geometry)) {
+                element.geometry.forEach((point) => {
+                    if (Number.isFinite(point.lat) && Number.isFinite(point.lon)) {
+                        allPoints.push(point);
+                    }
+                });
+            } else if (element.type === "relation" && Array.isArray(element.members)) {
+                element.members
+                    .filter((member) => member.type === "way")
+                    .forEach((member) => {
+                        const wayGeometry = wayGeometriesById.get(member.ref);
+                        if (!Array.isArray(wayGeometry)) {
+                            return;
+                        }
+                        wayGeometry.forEach((point) => {
+                            if (Number.isFinite(point.lat) && Number.isFinite(point.lon)) {
+                                allPoints.push(point);
+                            }
+                        });
+                    });
+            }
+
+            if (allPoints.length === 0) {
+                return null;
+            }
+
+            const sum = allPoints.reduce(
+                (acc, point) => ({ lat: acc.lat + point.lat, lon: acc.lon + point.lon }),
+                { lat: 0, lon: 0 },
+            );
+            return L.latLng(sum.lat / allPoints.length, sum.lon / allPoints.length);
+        }
+
+        function isStationElement(element) {
+            const tags = element && element.tags ? element.tags : {};
+            const railway = tags.railway || "";
+            const publicTransport = tags.public_transport || "";
+            return ["station", "halt", "stop"].includes(railway)
+                || publicTransport === "station"
+                || publicTransport === "stop_area";
+        }
+
+        function extractStationIdFromTags(tags) {
+            if (!tags) {
+                return "";
+            }
+
+            return tags["ref:station"] || tags["uic_ref"] || tags["uic:ref"] || tags["railway:ref"] || "";
+        }
+
+        function buildStationCandidates(elements, wayGeometriesById) {
+            return elements
+                .filter((element) => isStationElement(element))
+                .map((element) => {
+                    const tags = element.tags || {};
+                    const point = getRepresentativeLatLng(element, wayGeometriesById);
+                    if (!point) {
+                        return null;
+                    }
+
+                    return {
+                        stationId: extractStationIdFromTags(tags),
+                        stationName: tags.name || "",
+                        ifopt: tags["ref:IFOPT"] || "",
+                        ds100: tags["ref:DS100"] || "",
+                        lat: point.lat,
+                        lng: point.lng,
+                    };
+                })
+                .filter(Boolean);
+        }
+
+        function assignNearestStationMeta(layer, stationCandidates) {
+            if (!layer || !Array.isArray(stationCandidates) || stationCandidates.length === 0 || typeof layer.getBounds !== "function") {
+                return;
+            }
+
+            const center = layer.getBounds().getCenter();
+            let bestCandidate = null;
+            let bestDistance = Infinity;
+
+            stationCandidates.forEach((candidate) => {
+                const distance = map.distance(center, L.latLng(candidate.lat, candidate.lng));
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestCandidate = candidate;
+                }
+            });
+
+            if (!bestCandidate || !layer.platformMeta) {
+                return;
+            }
+
+            if (!layer.platformMeta.stationId && bestCandidate.stationId) {
+                layer.platformMeta.stationId = bestCandidate.stationId;
+            }
+            if (!layer.platformMeta.stationName && bestCandidate.stationName) {
+                layer.platformMeta.stationName = bestCandidate.stationName;
+            }
+            if (!layer.platformMeta.ifopt && bestCandidate.ifopt) {
+                layer.platformMeta.ifopt = bestCandidate.ifopt;
+            }
+            if (!layer.platformMeta.ds100 && bestCandidate.ds100) {
+                layer.platformMeta.ds100 = bestCandidate.ds100;
+            }
+        }
+
         async function loadPlatformsInView() {
             const requestId = ++platformRequestId;
             const zoom = map.getZoom();
@@ -714,29 +1056,12 @@
 
                 platformLayer.clearLayers();
 
-                const wayGeometriesById = new Map();
-                data.elements.forEach((element) => {
-                    if (element.type === "way" && Number.isFinite(element.id) && Array.isArray(element.geometry)) {
-                        wayGeometriesById.set(element.id, element.geometry);
-                    }
+                const features = buildPlatformFeaturesFromElements(data.elements);
+                features.forEach((feature) => {
+                    platformLayer.addLayer(feature);
                 });
 
-                const platformRelationWayRefs = collectPlatformRelationWayRefs(data.elements);
-
-                let count = 0;
-                data.elements.forEach((element) => {
-                    if (element.type === "way" && platformRelationWayRefs.has(element.id)) {
-                        return;
-                    }
-
-                    const feature = buildPlatformFeature(element, wayGeometriesById);
-                    if (feature) {
-                        platformLayer.addLayer(feature);
-                        count += 1;
-                    }
-                });
-
-                platformStatus.textContent = `Highlighted ${count} platform feature${count === 1 ? "" : "s"}. Data: OpenStreetMap (ODbL).`;
+                platformStatus.textContent = `Highlighted ${features.length} platform feature${features.length === 1 ? "" : "s"}. Data: OpenStreetMap (ODbL).`;
             } catch (error) {
                 platformStatus.textContent = "Platform service unavailable right now. Try again in a few seconds.";
             }
@@ -779,6 +1104,10 @@
                 }
             }
 
+            if (meta.stationName) {
+                return meta.stationName;
+            }
+
             return "unknown_station";
         }
 
@@ -807,6 +1136,17 @@
 
         function buildExportLabelName(index, layer, partIndex) {
             return `${buildExportBaseName(index, layer, partIndex)}.geojson`;
+        }
+
+        function buildPointExportBaseName(index, point) {
+            const latSegment = String(point.lat.toFixed(6)).replace(/[^a-zA-Z0-9-]+/g, "_").replace(/^-/, "m");
+            const lngSegment = String(point.lng.toFixed(6)).replace(/[^a-zA-Z0-9-]+/g, "_").replace(/^-/, "m");
+            return `point_${String(index + 1).padStart(3, "0")}_lat_${latSegment}_lon_${lngSegment}`;
+        }
+
+        function collectPlatformPolygonLayers() {
+            const platformFeatures = collectPlatformPolygonLayers();
+            return platformFeatures;
         }
 
         function getPixelBoundsFromRings(rings, zoom) {
@@ -882,6 +1222,10 @@
                 bytes[i] = binary.charCodeAt(i);
             }
             return bytes;
+        }
+
+        function getDataUrlByteSize(dataUrl) {
+            return dataUrlToUint8Array(dataUrl).length;
         }
 
         function downloadJson(jsonObject, fileName) {
@@ -1004,6 +1348,10 @@
                     outputCtx.restore();
 
                     const dataUrl = outputCanvas.toDataURL("image/png");
+                    if (getDataUrlByteSize(dataUrl) < minExportImageBytes) {
+                        continue;
+                    }
+
                     const imageName = buildExportImageName(index, layer, exportedParts);
                     const labelName = buildExportLabelName(index, layer, exportedParts);
 
@@ -1101,6 +1449,9 @@
                     const imageName = buildExportImageName(index, layer, exportedParts);
                     const labelName = buildExportLabelName(index, layer, exportedParts);
                     const imageDataUrl = outputCanvas.toDataURL("image/png");
+                    if (getDataUrlByteSize(imageDataUrl) < minExportImageBytes) {
+                        continue;
+                    }
 
                     const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
                     if (!pixelGeometry) {
@@ -1138,6 +1489,81 @@
             return outputs;
         }
 
+        async function collectPointMlExport(layerName, point, index, platformFeatures) {
+            const exportZoom = Math.min(mapMaxZoom, aerialMaxNativeZoom);
+            const centerPixel = map.options.crs.latLngToPoint(L.latLng(point.lat, point.lng), exportZoom);
+            const tileX = Math.floor(centerPixel.x / 256);
+            const tileY = Math.floor(centerPixel.y / 256);
+            const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
+
+            const bbox = getTileBoundsBboxMeters(tileX, tileY, exportZoom);
+            const params = new URLSearchParams({
+                service: "WMS",
+                request: "GetMap",
+                layers: layerName,
+                styles: "",
+                format: "image/png",
+                transparent: "true",
+                version: "1.1.1",
+                srs: "EPSG:3857",
+                bbox: `${bbox.minX},${bbox.minY},${bbox.maxX},${bbox.maxY}`,
+                width: "256",
+                height: "256",
+            });
+
+            const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+            const outputCanvas = document.createElement("canvas");
+            outputCanvas.width = 256;
+            outputCanvas.height = 256;
+            const outputCtx = outputCanvas.getContext("2d");
+            outputCtx.drawImage(sourceImage, 0, 0, 256, 256);
+
+            const labelFeatures = [];
+            platformFeatures.forEach((platformLayerItem) => {
+                const geoJson = platformLayerItem.toGeoJSON();
+                const feature = turf.feature(geoJson.geometry, geoJson.properties || {});
+                const clippedFeature = turf.intersect(feature, tilePolygon);
+                if (!clippedFeature || !clippedFeature.geometry) {
+                    return;
+                }
+
+                const clippedGeometry = clippedFeature.geometry;
+                if (clippedGeometry.type !== "Polygon" && clippedGeometry.type !== "MultiPolygon") {
+                    return;
+                }
+
+                const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
+                if (!pixelGeometry) {
+                    return;
+                }
+
+                labelFeatures.push({
+                    type: "Feature",
+                    properties: {
+                        class: "platform",
+                        station_id: extractStationId(platformLayerItem.platformMeta || {}),
+                    },
+                    geometry: pixelGeometry,
+                });
+            });
+
+            const baseName = buildPointExportBaseName(index, point);
+            return {
+                imageName: `${baseName}.png`,
+                labelName: `${baseName}.geojson`,
+                imageDataUrl: outputCanvas.toDataURL("image/png"),
+                labelGeoJson: {
+                    type: "FeatureCollection",
+                    features: labelFeatures,
+                },
+                lat: point.lat,
+                lng: point.lng,
+                tileX,
+                tileY,
+                zoom: exportZoom,
+            };
+        }
+
         async function exportPlatforms() {
             const layerName = resolveAerialLayerName();
             if (!layerName) {
@@ -1145,15 +1571,7 @@
                 return;
             }
 
-            const platformFeatures = [];
-            platformLayer.eachLayer((layer) => {
-                if (typeof layer.toGeoJSON === "function") {
-                    const geometry = layer.toGeoJSON().geometry;
-                    if (geometry && (geometry.type === "Polygon" || geometry.type === "MultiPolygon")) {
-                        platformFeatures.push(layer);
-                    }
-                }
-            });
+            const platformFeatures = collectPlatformPolygonLayers();
 
             if (platformFeatures.length === 0) {
                 exportStatus.textContent = "No platform polygons available. Load platforms first.";
@@ -1189,18 +1607,14 @@
                 return;
             }
 
-            const platformFeatures = [];
-            platformLayer.eachLayer((layer) => {
-                if (typeof layer.toGeoJSON === "function") {
-                    const geometry = layer.toGeoJSON().geometry;
-                    if (geometry && (geometry.type === "Polygon" || geometry.type === "MultiPolygon")) {
-                        platformFeatures.push(layer);
-                    }
-                }
-            });
+            const parsedPoints = parsePointListInput();
+            if (parsedPoints.points.length === 0) {
+                exportStatus.textContent = "No export points available. Add points first.";
+                return;
+            }
 
-            if (platformFeatures.length === 0) {
-                exportStatus.textContent = "No platform polygons available. Load platforms first.";
+            if (parsedPoints.invalidCount > 0) {
+                exportStatus.textContent = `Fix invalid point rows first (${parsedPoints.invalidCount}).`;
                 return;
             }
 
@@ -1213,23 +1627,75 @@
                 const labelsFolder = zip.folder("raw/labels");
                 const manifest = [];
                 let exportedCount = 0;
+                const failedPoints = [];
+                const seenPlatformKeys = new Set();
+                let platformExportIndex = 0;
 
-                for (let index = 0; index < platformFeatures.length; index += 1) {
-                    exportStatus.textContent = `Bundling ${index + 1}/${platformFeatures.length}...`;
-                    const items = await collectPlatformExports(layerName, platformFeatures[index], index);
+                for (let index = 0; index < parsedPoints.points.length; index += 1) {
+                    exportStatus.textContent = `Loading platforms for point ${index + 1}/${parsedPoints.points.length}...`;
+                    try {
+                        const point = parsedPoints.points[index];
+                        const bbox = buildBboxAroundPoint(point.lat, point.lng, mlPointSearchRadiusMeters);
+                        const response = await fetch(`/platforms?bbox=${encodeURIComponent(bbox)}`);
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
 
-                    items.forEach((item) => {
-                        imagesFolder.file(item.imageName, dataUrlToUint8Array(item.imageDataUrl), { binary: true });
-                        labelsFolder.file(item.labelName, JSON.stringify(item.labelGeoJson));
-                        manifest.push({
-                            image: `raw/images/${item.imageName}`,
-                            label: `raw/labels/${item.labelName}`,
+                        const data = await response.json();
+                        if (!data || !Array.isArray(data.elements)) {
+                            throw new Error("Invalid platform response");
+                        }
+
+                        const platformFeatures = buildPlatformFeaturesFromElements(data.elements, seenPlatformKeys);
+                        if (platformFeatures.length === 0) {
+                            failedPoints.push({
+                                index: index + 1,
+                                lat: point.lat,
+                                lon: point.lng,
+                                reason: "No platforms found near this point",
+                            });
+                            continue;
+                        }
+
+                        for (let featureIndex = 0; featureIndex < platformFeatures.length; featureIndex += 1) {
+                            const items = await collectPlatformExports(layerName, platformFeatures[featureIndex], platformExportIndex);
+                            platformExportIndex += 1;
+
+                            items.forEach((item) => {
+                                imagesFolder.file(item.imageName, dataUrlToUint8Array(item.imageDataUrl), { binary: true });
+                                labelsFolder.file(item.labelName, JSON.stringify(item.labelGeoJson));
+                                manifest.push({
+                                    image: `raw/images/${item.imageName}`,
+                                    label: `raw/labels/${item.labelName}`,
+                                    source_point_index: index + 1,
+                                    source_point_lat: point.lat,
+                                    source_point_lon: point.lng,
+                                });
+                                exportedCount += 1;
+                            });
+                        }
+                    } catch (error) {
+                        failedPoints.push({
+                            index: index + 1,
+                            lat: parsedPoints.points[index].lat,
+                            lon: parsedPoints.points[index].lng,
+                            reason: error && error.message ? error.message : "unknown error",
                         });
-                        exportedCount += 1;
-                    });
+                    }
                 }
 
-                zip.file("raw/manifest.json", JSON.stringify({ count: exportedCount, items: manifest }, null, 2));
+                if (exportedCount === 0) {
+                    const failedSummary = failedPoints.length > 0 ? ` First failure: point ${failedPoints[0].index} (${formatCoords(failedPoints[0].lat, failedPoints[0].lon)}).` : "";
+                    exportStatus.textContent = `ML ZIP export failed for all points.${failedSummary}`;
+                    return;
+                }
+
+                zip.file("raw/manifest.json", JSON.stringify({
+                    count: exportedCount,
+                    failed_count: failedPoints.length,
+                    failed_points: failedPoints,
+                    items: manifest,
+                }, null, 2));
                 const zipBlob = await zip.generateAsync({ type: "blob" });
 
                 const zipUrl = URL.createObjectURL(zipBlob);
@@ -1239,9 +1705,11 @@
                 link.click();
                 URL.revokeObjectURL(zipUrl);
 
-                exportStatus.textContent = `Created ML ZIP with ${exportedCount} image/label pairs.`;
+                exportStatus.textContent = failedPoints.length > 0
+                    ? `Created ML ZIP with ${exportedCount} platform image/label pairs. Skipped ${failedPoints.length} point(s).`
+                    : `Created ML ZIP with ${exportedCount} platform image/label pairs.`;
             } catch (error) {
-                exportStatus.textContent = "ML ZIP export failed. Ensure aerial layer is available and try again.";
+                exportStatus.textContent = `ML ZIP export failed: ${error && error.message ? error.message : "unknown error"}`;
             } finally {
                 exportPlatformsBtn.disabled = false;
                 exportMlBundleBtn.disabled = false;
@@ -1267,6 +1735,24 @@
         loadPlatformsBtn.addEventListener("click", loadPlatformsInView);
         exportPlatformsBtn.addEventListener("click", exportPlatforms);
         exportMlBundleBtn.addEventListener("click", exportPlatformsMlBundle);
+        copyCoordsBtn.addEventListener("click", async () => {
+            const point = getActionLatLng();
+            const text = formatCoords(point.lat, point.lng);
+            try {
+                await copyTextToClipboard(text);
+                pointStatus.textContent = `Copied: ${text}`;
+            } catch (error) {
+                pointStatus.textContent = "Could not copy coordinates to clipboard.";
+            }
+        });
+        addPointBtn.addEventListener("click", () => {
+            appendPoint(getActionLatLng());
+        });
+        clearPointsBtn.addEventListener("click", () => {
+            pointListInput.value = "";
+            refreshExportPointPreview();
+        });
+        pointListInput.addEventListener("input", refreshExportPointPreview);
 
         aerialOpacityValue.textContent = `${aerialOpacityInput.value}%`;
 
@@ -1277,8 +1763,24 @@
             hoverCoords.textContent = formatCoords(event.latlng.lat, event.latlng.lng);
         });
 
+        function handleCoordinatePick(latlng) {
+            if (!latlng) {
+                return;
+            }
+            lastClickedLatLng = latlng;
+            clickCoords.textContent = formatCoords(latlng.lat, latlng.lng);
+        }
+
         map.on("click", (event) => {
-            clickCoords.textContent = formatCoords(event.latlng.lat, event.latlng.lng);
+            handleCoordinatePick(event.latlng);
+        });
+
+        platformLayer.on("click", (event) => {
+            handleCoordinatePick(event.latlng);
+        });
+
+        exportPointLayer.on("click", (event) => {
+            handleCoordinatePick(event.latlng);
         });
 
         function updateZoomLevel() {
@@ -1287,6 +1789,7 @@
 
         map.on("zoomend", updateZoomLevel);
         updateZoomLevel();
+        refreshExportPointPreview();
     </script>
 </body>
 

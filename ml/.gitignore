@@ -1,0 +1,4 @@
+*.png
+*.geojson
+manifest.json
+raw/

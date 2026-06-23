@@ -24,6 +24,16 @@ Key scripts:
 - [ml/infer_instance_segmentation.py](ml/infer_instance_segmentation.py)
 - [ml/prepare_coco_from_geojson.py](ml/prepare_coco_from_geojson.py)
 
+Sample data:
+52.559093, 14.350795
+52.406681, 13.824663
+52.400254, 12.564111
+52.403154, 12.156914
+52.274524, 11.840258
+51.997122, 13.053560
+51.842533, 12.634556
+51.519756, 12.346535
+
 ## License
 
 <!-- If you decide for another license, please change it here, and exchange the LICENSE file -->
