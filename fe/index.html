@@ -137,6 +137,26 @@
             cursor: not-allowed;
         }
 
+        #exportMlBundleBtn {
+            border: 1px solid #7c3aed;
+            background: #7c3aed;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #exportMlBundleBtn:hover {
+            background: #5b21b6;
+        }
+
+        #exportMlBundleBtn:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+        }
+
         #platformStatus {
             margin: 8px 2px 0;
             color: #57606a;
@@ -241,6 +261,7 @@
         <div class="search-row">
             <button id="loadPlatformsBtn" type="button">Load In Current View</button>
             <button id="exportPlatformsBtn" type="button">Export Images</button>
+            <button id="exportMlBundleBtn" type="button">Export ML ZIP</button>
         </div>
         <div id="platformStatus"></div>
         <div id="exportStatus"></div>
@@ -254,6 +275,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script>
         const mapMaxZoom = 19;
         const map = L.map("map", { maxZoom: mapMaxZoom }).setView([52.559281, 14.351497], 17);
@@ -326,6 +348,7 @@
         const addWmsBtn = document.getElementById("addWmsBtn");
         const loadPlatformsBtn = document.getElementById("loadPlatformsBtn");
         const exportPlatformsBtn = document.getElementById("exportPlatformsBtn");
+        const exportMlBundleBtn = document.getElementById("exportMlBundleBtn");
         const platformStatus = document.getElementById("platformStatus");
         const exportStatus = document.getElementById("exportStatus");
         const aerialOpacityInput = document.getElementById("aerialOpacity");
@@ -759,7 +782,7 @@
             return "unknown_station";
         }
 
-        function buildExportName(index, layer, partIndex) {
+        function buildExportBaseName(index, layer, partIndex) {
             const meta = layer.platformMeta || {};
             const stationId = sanitizeFileNameSegment(extractStationId(meta)) || "unknown_station";
 
@@ -775,7 +798,15 @@
 
             const suffix = additionalSegments.join("_").slice(0, 140);
             const partSuffix = partIndex > 0 ? `_part_${String(partIndex + 1).padStart(3, "0")}` : "";
-            return `${stationId}_${String(index + 1).padStart(3, "0")}_${suffix || "platform"}${partSuffix}.png`;
+            return `${stationId}_${String(index + 1).padStart(3, "0")}_${suffix || "platform"}${partSuffix}`;
+        }
+
+        function buildExportImageName(index, layer, partIndex) {
+            return `${buildExportBaseName(index, layer, partIndex)}.png`;
+        }
+
+        function buildExportLabelName(index, layer, partIndex) {
+            return `${buildExportBaseName(index, layer, partIndex)}.geojson`;
         }
 
         function getPixelBoundsFromRings(rings, zoom) {
@@ -835,6 +866,64 @@
             });
         }
 
+        function downloadDataUrl(dataUrl, fileName) {
+            const downloadLink = document.createElement("a");
+            downloadLink.href = dataUrl;
+            downloadLink.download = fileName;
+            downloadLink.click();
+        }
+
+        function dataUrlToUint8Array(dataUrl) {
+            const commaIndex = dataUrl.indexOf(",");
+            const base64 = dataUrl.slice(commaIndex + 1);
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        function downloadJson(jsonObject, fileName) {
+            const blob = new Blob([JSON.stringify(jsonObject)], { type: "application/geo+json" });
+            const url = URL.createObjectURL(blob);
+            const downloadLink = document.createElement("a");
+            downloadLink.href = url;
+            downloadLink.download = fileName;
+            downloadLink.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function convertGeometryToPixelCoords(geometry, zoom, tileX, tileY) {
+            const tileOrigin = L.point(tileX * 256, tileY * 256);
+
+            const convertCoord = (coord) => {
+                const latLng = L.latLng(coord[1], coord[0]);
+                const point = map.options.crs.latLngToPoint(latLng, zoom);
+                const x = point.x - tileOrigin.x;
+                const y = point.y - tileOrigin.y;
+                return [x, y];
+            };
+
+            if (geometry.type === "Polygon") {
+                return {
+                    type: "Polygon",
+                    coordinates: geometry.coordinates.map((ring) => ring.map(convertCoord)),
+                };
+            }
+
+            if (geometry.type === "MultiPolygon") {
+                return {
+                    type: "MultiPolygon",
+                    coordinates: geometry.coordinates.map((polygon) =>
+                        polygon.map((ring) => ring.map(convertCoord)),
+                    ),
+                };
+            }
+
+            return null;
+        }
+
         function clipPlatformRingsToTileCanvas(ctx, rings, zoom, tileX, tileY) {
             const tileOrigin = L.point(tileX * 256, tileY * 256);
 
@@ -879,8 +968,13 @@
             for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
                 for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
                     const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
-                    const intersects = turf.booleanIntersects(feature, tilePolygon);
-                    if (!intersects) {
+                    const clippedFeature = turf.intersect(feature, tilePolygon);
+                    if (!clippedFeature || !clippedFeature.geometry) {
+                        continue;
+                    }
+
+                    const clippedGeometry = clippedFeature.geometry;
+                    if (clippedGeometry.type !== "Polygon" && clippedGeometry.type !== "MultiPolygon") {
                         continue;
                     }
 
@@ -910,15 +1004,138 @@
                     outputCtx.restore();
 
                     const dataUrl = outputCanvas.toDataURL("image/png");
-                    const downloadLink = document.createElement("a");
-                    downloadLink.href = dataUrl;
-                    downloadLink.download = buildExportName(index, layer, exportedParts);
-                    downloadLink.click();
+                    const imageName = buildExportImageName(index, layer, exportedParts);
+                    const labelName = buildExportLabelName(index, layer, exportedParts);
+
+                    downloadDataUrl(dataUrl, imageName);
+
+                    const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
+                    if (pixelGeometry) {
+                        const labelGeoJson = {
+                            type: "FeatureCollection",
+                            features: [
+                                {
+                                    type: "Feature",
+                                    properties: {
+                                        class: "platform",
+                                        station_id: extractStationId(layer.platformMeta || {}),
+                                        tile_x: tileX,
+                                        tile_y: tileY,
+                                        zoom: exportZoom,
+                                        part_index: exportedParts,
+                                    },
+                                    geometry: pixelGeometry,
+                                },
+                            ],
+                        };
+                        downloadJson(labelGeoJson, labelName);
+                    }
+
                     exportedParts += 1;
                 }
             }
 
             return exportedParts;
+        }
+
+        async function collectPlatformExports(layerName, layer, index) {
+            const geoJson = layer.toGeoJSON();
+            const rings = flattenGeoJsonRings(geoJson.geometry);
+            if (rings.length === 0) {
+                return [];
+            }
+
+            const feature = turf.feature(geoJson.geometry, geoJson.properties || {});
+            const exportZoom = Math.min(mapMaxZoom, aerialMaxNativeZoom);
+            const pixelBounds = getPixelBoundsFromRings(rings, exportZoom);
+            if (!Number.isFinite(pixelBounds.minX) || !Number.isFinite(pixelBounds.maxX)) {
+                return [];
+            }
+
+            const minTileX = Math.floor(pixelBounds.minX / 256);
+            const maxTileX = Math.floor(pixelBounds.maxX / 256);
+            const minTileY = Math.floor(pixelBounds.minY / 256);
+            const maxTileY = Math.floor(pixelBounds.maxY / 256);
+
+            const outputs = [];
+            let exportedParts = 0;
+
+            for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+                for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+                    const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
+                    const clippedFeature = turf.intersect(feature, tilePolygon);
+                    if (!clippedFeature || !clippedFeature.geometry) {
+                        continue;
+                    }
+
+                    const clippedGeometry = clippedFeature.geometry;
+                    if (clippedGeometry.type !== "Polygon" && clippedGeometry.type !== "MultiPolygon") {
+                        continue;
+                    }
+
+                    const bbox = getTileBoundsBboxMeters(tileX, tileY, exportZoom);
+                    const params = new URLSearchParams({
+                        service: "WMS",
+                        request: "GetMap",
+                        layers: layerName,
+                        styles: "",
+                        format: "image/png",
+                        transparent: "true",
+                        version: "1.1.1",
+                        srs: "EPSG:3857",
+                        bbox: `${bbox.minX},${bbox.minY},${bbox.maxX},${bbox.maxY}`,
+                        width: "256",
+                        height: "256",
+                    });
+
+                    const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+                    const outputCanvas = document.createElement("canvas");
+                    outputCanvas.width = 256;
+                    outputCanvas.height = 256;
+                    const outputCtx = outputCanvas.getContext("2d");
+                    outputCtx.save();
+                    clipPlatformRingsToTileCanvas(outputCtx, rings, exportZoom, tileX, tileY);
+                    outputCtx.drawImage(sourceImage, 0, 0, 256, 256);
+                    outputCtx.restore();
+
+                    const imageName = buildExportImageName(index, layer, exportedParts);
+                    const labelName = buildExportLabelName(index, layer, exportedParts);
+                    const imageDataUrl = outputCanvas.toDataURL("image/png");
+
+                    const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
+                    if (!pixelGeometry) {
+                        continue;
+                    }
+
+                    const labelGeoJson = {
+                        type: "FeatureCollection",
+                        features: [
+                            {
+                                type: "Feature",
+                                properties: {
+                                    class: "platform",
+                                    station_id: extractStationId(layer.platformMeta || {}),
+                                    tile_x: tileX,
+                                    tile_y: tileY,
+                                    zoom: exportZoom,
+                                    part_index: exportedParts,
+                                },
+                                geometry: pixelGeometry,
+                            },
+                        ],
+                    };
+
+                    outputs.push({
+                        imageName,
+                        labelName,
+                        imageDataUrl,
+                        labelGeoJson,
+                    });
+                    exportedParts += 1;
+                }
+            }
+
+            return outputs;
         }
 
         async function exportPlatforms() {
@@ -960,6 +1177,77 @@
             }
         }
 
+        async function exportPlatformsMlBundle() {
+            if (typeof JSZip === "undefined") {
+                exportStatus.textContent = "JSZip is not available. Reload the page and try again.";
+                return;
+            }
+
+            const layerName = resolveAerialLayerName();
+            if (!layerName) {
+                exportStatus.textContent = "Set a valid aerial layer name first.";
+                return;
+            }
+
+            const platformFeatures = [];
+            platformLayer.eachLayer((layer) => {
+                if (typeof layer.toGeoJSON === "function") {
+                    const geometry = layer.toGeoJSON().geometry;
+                    if (geometry && (geometry.type === "Polygon" || geometry.type === "MultiPolygon")) {
+                        platformFeatures.push(layer);
+                    }
+                }
+            });
+
+            if (platformFeatures.length === 0) {
+                exportStatus.textContent = "No platform polygons available. Load platforms first.";
+                return;
+            }
+
+            exportPlatformsBtn.disabled = true;
+            exportMlBundleBtn.disabled = true;
+
+            try {
+                const zip = new JSZip();
+                const imagesFolder = zip.folder("raw/images");
+                const labelsFolder = zip.folder("raw/labels");
+                const manifest = [];
+                let exportedCount = 0;
+
+                for (let index = 0; index < platformFeatures.length; index += 1) {
+                    exportStatus.textContent = `Bundling ${index + 1}/${platformFeatures.length}...`;
+                    const items = await collectPlatformExports(layerName, platformFeatures[index], index);
+
+                    items.forEach((item) => {
+                        imagesFolder.file(item.imageName, dataUrlToUint8Array(item.imageDataUrl), { binary: true });
+                        labelsFolder.file(item.labelName, JSON.stringify(item.labelGeoJson));
+                        manifest.push({
+                            image: `raw/images/${item.imageName}`,
+                            label: `raw/labels/${item.labelName}`,
+                        });
+                        exportedCount += 1;
+                    });
+                }
+
+                zip.file("raw/manifest.json", JSON.stringify({ count: exportedCount, items: manifest }, null, 2));
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+
+                const zipUrl = URL.createObjectURL(zipBlob);
+                const link = document.createElement("a");
+                link.href = zipUrl;
+                link.download = "platform_ml_export.zip";
+                link.click();
+                URL.revokeObjectURL(zipUrl);
+
+                exportStatus.textContent = `Created ML ZIP with ${exportedCount} image/label pairs.`;
+            } catch (error) {
+                exportStatus.textContent = "ML ZIP export failed. Ensure aerial layer is available and try again.";
+            } finally {
+                exportPlatformsBtn.disabled = false;
+                exportMlBundleBtn.disabled = false;
+            }
+        }
+
         addWmsBtn.addEventListener("click", addAerialOverlay);
         wmsLayerNameInput.addEventListener("keydown", (event) => {
             if (event.key === "Enter") {
@@ -978,6 +1266,7 @@
 
         loadPlatformsBtn.addEventListener("click", loadPlatformsInView);
         exportPlatformsBtn.addEventListener("click", exportPlatforms);
+        exportMlBundleBtn.addEventListener("click", exportPlatformsMlBundle);
 
         aerialOpacityValue.textContent = `${aerialOpacityInput.value}%`;
 

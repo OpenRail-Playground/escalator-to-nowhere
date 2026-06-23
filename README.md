@@ -14,6 +14,16 @@ This project has been initiated during the [Hack4Rail 2026](https://hack4rail.or
 
 <!-- TODO: Explain how a user can install the software -->
 
+## Platform Instance Segmentation (PyTorch)
+
+A full Mask R-CNN training and inference pipeline is available in [ml/README.md](ml/README.md).
+
+Key scripts:
+
+- [ml/train_instance_segmentation.py](ml/train_instance_segmentation.py)
+- [ml/infer_instance_segmentation.py](ml/infer_instance_segmentation.py)
+- [ml/prepare_coco_from_geojson.py](ml/prepare_coco_from_geojson.py)
+
 ## License
 
 <!-- If you decide for another license, please change it here, and exchange the LICENSE file -->
