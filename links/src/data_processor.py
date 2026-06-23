@@ -68,8 +68,8 @@ class DataProcessor:
 
     def get_context_data(self, bahnhof_id: int) -> dict:
         """Processes specific files and returns a dictionary of data."""
-        tps_data = self.tps_data[self.tps_data['bahnhof'] == bahnhof_id].drop(columns=['bahnhof'])
-        equipment_data = self.equipment_data[self.equipment_data['bahnhof'] == bahnhof_id].drop(columns=['bahnhof'])
+        tps_data = self.tps_data[self.tps_data['bahnhof'] == bahnhof_id]
+        equipment_data = self.equipment_data[self.equipment_data['bahnhof'] == bahnhof_id]
 
         tps_json = tps_data.to_json(orient="records")
         aufzug_json = equipment_data.to_json(orient="records")

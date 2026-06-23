@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Set provider to 'ollama' or 'claude_proxy'
-LLM_PROVIDER = "ollama"
+LLM_PROVIDER = "claude_proxy"
 
 class LLMClient:
     def __init__(self):

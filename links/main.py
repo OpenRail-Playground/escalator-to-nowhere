@@ -4,7 +4,18 @@ from src.data_processor import DataProcessor
 import os
 
 BAHNHOF_IDS = [
-    557
+    2648,
+    557,
+    # 2559,
+    # 634,
+    # 5876,
+    # 1409,
+    # 6790,
+    # 1697,
+    # 1907,
+    # 1406,
+    # 2771,
+    # 669
 ]
 
 def main():
@@ -23,14 +34,24 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("")
 
+    first_entry = True
     for bahnhof_id in BAHNHOF_IDS:
         print(f"Processing data for Bahnhof ID: {bahnhof_id}")
         context_data = processor.get_context_data(bahnhof_id)
         csv_result = extractor.extract(context_data=context_data)
+
+        lines = csv_result.splitlines()
+        content = [f"{bahnhof_id},{line}" for line in lines[1:]]
+        result = "\n".join(content)
+
         with open(output_path, "a", encoding="utf-8") as f:
-            if not csv_result.endswith("\n"):
-                csv_result += "\n"
-            f.write(csv_result)
+            if first_entry:
+                header = f"bahnhof_id,{lines[0]}"
+                result = header + "\n" + result
+                first_entry = False
+            if not result.endswith("\n"):
+                result += "\n"
+            f.write(result)
     
     print(f"Analysis complete. Results saved to {output_path}")
 
