@@ -16,7 +16,8 @@ Task:
 5. If no plausible additional technical place exists for an equipment record, do not output a row for it.
 
 Output format:
-CSV file with these columns:
+Return the results ONLY as a CSV string with a header. Do not include any other text, 
+explanations, or markdown code blocks. The CSV file should have the following columns:
 eps_id,tech_platz_linked,tech_platz_to_link,explanation
 
 Output Columns:

@@ -27,11 +27,7 @@ class DataExtractor:
         # 2. Query LLM
         response = self.client.query(context_str, system_prompt=system_prompt)
         
-        # 3. Process answer (to be implemented later)
-        # For now, just returning the raw response in a dict
-        extracted_data = {
-            "raw_response": response,
-            "parsed_data": {} # Placeholder
-        }
+        # 3. Process answer
+        csv_content = response.strip()
         
-        return extracted_data
+        return csv_content

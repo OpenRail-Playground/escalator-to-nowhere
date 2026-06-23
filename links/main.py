@@ -16,10 +16,15 @@ def main():
     context_data = processor.get_context_data()
 
     print("Starting analysis of dataset connections...")
-    result = extractor.extract(context_data=context_data)
+    csv_result = extractor.extract(context_data=context_data)
     
-    print("Analysis Result:")
-    print(result["raw_response"])
+    # Save the result to a CSV file
+    output_path = os.path.join(os.getcwd(), "out", "connections.csv")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(csv_result)
+    
+    print(f"Analysis complete. Results saved to {output_path}")
 
 if __name__ == "__main__":
     main()
