@@ -6,7 +6,7 @@ import os
 def main():
     # Initialize components
     client = LLMClient()
-    extractor = DataExtractor(client)
+    extractor = DataExtractor(client, debug=True)
     
     # Initialize data processor 
     data_dir = os.path.join(os.getcwd(), "data", "berlin-schachtensee")

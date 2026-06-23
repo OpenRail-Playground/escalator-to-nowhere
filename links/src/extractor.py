@@ -6,8 +6,9 @@ from pathlib import Path
 SYSTEM_PROMPT_PATH = "prompts/system-prompt.txt"
 
 class DataExtractor:
-    def __init__(self, client: LLMClient):
+    def __init__(self, client: LLMClient, debug: bool = False):
         self.client = client
+        self.debug = debug
     
 
     def extract(self, context_data: dict) -> dict:
@@ -22,10 +23,13 @@ class DataExtractor:
         if "tps" in context_data:
             context_str += f"\nTPS Data:\n{context_data['tps']}\n"
         if "equipment" in context_data:
-            context_str += f"\nEquipment Data:\n{context_data['equipment']}\n"
+            context_str += f"\nEquipment Data:\n{context_data['equipment']}\n" 
 
         # 2. Query LLM
         response = self.client.query(context_str, system_prompt=system_prompt)
+
+        if self.debug:
+            print("[DEBUG] LLM response:\n", response)
         
         # 3. Process answer
         csv_content = response.strip()
