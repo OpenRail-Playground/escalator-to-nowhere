@@ -41,6 +41,8 @@ def main():
         csv_result = extractor.extract(context_data=context_data)
 
         lines = csv_result.splitlines()
+        if len(lines) < 2:
+            continue
         content = [f"{bahnhof_id},{line}" for line in lines[1:]]
         result = "\n".join(content)
 
