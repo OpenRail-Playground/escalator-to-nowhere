@@ -3,3 +3,5 @@
 manifest.json
 raw/
 *.json
+runs/
+instance_segmentation/

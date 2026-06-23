@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
 import torch
 from PIL import Image
 from pycocotools.coco import COCO
@@ -62,10 +63,11 @@ class CocoInstanceDataset(Dataset):
             iscrowd.append(0)
 
         if boxes:
+            masks_array = np.stack(masks, axis=0).astype(np.uint8, copy=False)
             target = {
                 "boxes": torch.tensor(boxes, dtype=torch.float32),
                 "labels": torch.tensor(labels, dtype=torch.int64),
-                "masks": torch.tensor(masks, dtype=torch.uint8),
+                "masks": torch.from_numpy(masks_array),
                 "image_id": torch.tensor([image_id], dtype=torch.int64),
                 "area": torch.tensor(areas, dtype=torch.float32),
                 "iscrowd": torch.tensor(iscrowd, dtype=torch.int64),
