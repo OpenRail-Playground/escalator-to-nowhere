@@ -103,6 +103,27 @@
             min-height: 16px;
         }
 
+        #loadPlatformsBtn {
+            border: 1px solid #9a6700;
+            background: #bf8700;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #loadPlatformsBtn:hover {
+            background: #9a6700;
+        }
+
+        #platformStatus {
+            margin: 8px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
         .wms-opacity-row {
             margin-top: 8px;
             display: flex;
@@ -188,6 +209,12 @@
             <span id="aerialOpacityValue">100%</span>
         </div>
         <div id="wmsStatus">Server: local proxy (/wms) - use technical WMS layer names</div>
+
+        <div class="panel-title">Train Platforms</div>
+        <div class="search-row">
+            <button id="loadPlatformsBtn" type="button">Load In Current View</button>
+        </div>
+        <div id="platformStatus"></div>
     </div>
     <div id="map"></div>
     <div class="coords-bar">
@@ -197,35 +224,52 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
     <script>
-        const map = L.map("map").setView([52.559281, 14.351497], 17);
+        const mapMaxZoom = 19;
+        const map = L.map("map", { maxZoom: mapMaxZoom }).setView([52.559281, 14.351497], 17);
+
+        map.createPane("aerialPane");
+        map.getPane("aerialPane").style.zIndex = 420;
+        map.createPane("railPane");
+        map.getPane("railPane").style.zIndex = 430;
+        map.createPane("platformPane");
+        map.getPane("platformPane").style.zIndex = 440;
 
         const osmStandard = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         });
 
-        const osmHumanitarian = L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
-            maxZoom: 19,
-            attribution:
-                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Tiles style by <a href="https://www.hotosm.org/" target="_blank" rel="noopener">Humanitarian OpenStreetMap Team</a>',
-        });
-
-        const osmDE = L.tileLayer("https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png", {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        const openRailwayMap = L.tileLayer("https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png", {
+            maxZoom: mapMaxZoom,
+            pane: "railPane",
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, style: <a href="https://www.openrailwaymap.org/" target="_blank" rel="noopener">OpenRailwayMap</a>',
         });
 
         const aerialWmsUrl = "/wms";
+        const aerialMaxNativeZoom = 19;
+        const platformLayer = L.layerGroup();
+        const platformFillStyle = {
+            pane: "platformPane",
+            color: "#f59e0b",
+            weight: 2,
+            fillColor: "#facc15",
+            fillOpacity: 0.35,
+        };
+        const platformBufferWidthMeters = 3;
 
         osmStandard.addTo(map);
+        openRailwayMap.addTo(map);
+        platformLayer.addTo(map);
 
         const baseLayers = {
             "OSM Standard": osmStandard,
-            "OSM Humanitarian": osmHumanitarian,
-            "OSM DE": osmDE,
         };
-        const overlayLayers = {};
+        const overlayLayers = {
+            "OpenRailwayMap": openRailwayMap,
+            "Train Platforms": platformLayer,
+        };
         const layerControl = L.control.layers(baseLayers, overlayLayers, { collapsed: false }).addTo(map);
 
         L.control.scale().addTo(map);
@@ -236,6 +280,8 @@
         const searchResults = document.getElementById("searchResults");
         const wmsLayerNameInput = document.getElementById("wmsLayerName");
         const addWmsBtn = document.getElementById("addWmsBtn");
+        const loadPlatformsBtn = document.getElementById("loadPlatformsBtn");
+        const platformStatus = document.getElementById("platformStatus");
         const aerialOpacityInput = document.getElementById("aerialOpacity");
         const aerialOpacityValue = document.getElementById("aerialOpacityValue");
         const wmsStatus = document.getElementById("wmsStatus");
@@ -245,6 +291,8 @@
         let selectedMarker;
         let aerialOverlay;
         let aerialOverlayLabel;
+        let platformRequestId = 0;
+        const platformMinZoom = 15;
 
         function getAerialOpacity() {
             return Number(aerialOpacityInput.value) / 100;
@@ -348,6 +396,9 @@
                 format: "image/png",
                 transparent: true,
                 version: "1.1.1",
+                pane: "aerialPane",
+                maxNativeZoom: aerialMaxNativeZoom,
+                maxZoom: aerialMaxNativeZoom,
                 opacity: getAerialOpacity(),
                 attribution: "Aerial imagery (local GeoServer)",
             });
@@ -380,7 +431,144 @@
             aerialOverlayLabel = `Aerial (${layerName})`;
             layerControl.addOverlay(aerialOverlay, aerialOverlayLabel);
             aerialOverlay.addTo(map);
-            wmsStatus.textContent = `Overlay loaded: ${layerName}`;
+            if (map.hasLayer(openRailwayMap)) {
+                openRailwayMap.bringToFront();
+            }
+            wmsStatus.textContent = `Overlay loaded: ${layerName} (native zoom up to ${aerialMaxNativeZoom})`;
+        }
+
+        function buildBufferedPlatformPolygon(latLngs) {
+            if (typeof turf === "undefined") {
+                return null;
+            }
+
+            const lineCoords = latLngs.map((point) => [point[1], point[0]]);
+            const line = turf.lineString(lineCoords);
+            const buffered = turf.buffer(line, platformBufferWidthMeters, {
+                units: "meters",
+                steps: 8,
+            });
+
+            return L.geoJSON(buffered, {
+                pane: "platformPane",
+                style: platformFillStyle,
+            }).bindTooltip("Platform");
+        }
+
+        function closeRing(latLngs) {
+            if (latLngs.length === 0) {
+                return latLngs;
+            }
+
+            const first = latLngs[0];
+            const last = latLngs[latLngs.length - 1];
+            if (first[0] !== last[0] || first[1] !== last[1]) {
+                return [...latLngs, first];
+            }
+
+            return latLngs;
+        }
+
+        function buildPlatformFeature(element, wayGeometriesById) {
+
+            if (element.type === "way" && Array.isArray(element.geometry) && element.geometry.length > 1) {
+                const latLngs = element.geometry
+                    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+                    .map((point) => [point.lat, point.lon]);
+
+                if (latLngs.length < 2) {
+                    return null;
+                }
+
+                const first = latLngs[0];
+                const last = latLngs[latLngs.length - 1];
+                const isClosed = first[0] === last[0] && first[1] === last[1];
+
+                if (isClosed && latLngs.length >= 4) {
+                    return L.polygon(latLngs, platformFillStyle).bindTooltip("Platform");
+                }
+
+                return buildBufferedPlatformPolygon(latLngs);
+            }
+
+            if (element.type === "relation" && Array.isArray(element.members)) {
+                const outerRings = element.members
+                    .filter((member) => member.type === "way" && member.role !== "inner")
+                    .map((member) => {
+                        if (Array.isArray(member.geometry)) {
+                            return member.geometry;
+                        }
+
+                        const resolvedWayGeometry = wayGeometriesById.get(member.ref);
+                        return Array.isArray(resolvedWayGeometry) ? resolvedWayGeometry : [];
+                    })
+                    .map((geometry) => geometry
+                        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+                        .map((point) => [point.lat, point.lon]))
+                    .map((latLngs) => closeRing(latLngs))
+                    .filter((latLngs) => latLngs.length >= 4);
+
+                if (outerRings.length > 0) {
+                    return L.polygon(outerRings, platformFillStyle).bindTooltip("Platform");
+                }
+            }
+
+            return null;
+        }
+
+        async function loadPlatformsInView() {
+            const requestId = ++platformRequestId;
+            const zoom = map.getZoom();
+
+            if (zoom < platformMinZoom) {
+                platformLayer.clearLayers();
+                platformStatus.textContent = `Zoom in to at least ${platformMinZoom} to load platforms.`;
+                return;
+            }
+
+            const bounds = map.getBounds();
+            const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+
+            platformStatus.textContent = "Loading platforms...";
+
+            try {
+                const response = await fetch(`/platforms?bbox=${encodeURIComponent(bbox)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data || !Array.isArray(data.elements)) {
+                    throw new Error("Invalid platform response");
+                }
+
+                if (requestId !== platformRequestId) {
+                    return;
+                }
+
+                platformLayer.clearLayers();
+
+                const wayGeometriesById = new Map();
+                data.elements.forEach((element) => {
+                    if (element.type === "way" && Number.isFinite(element.id) && Array.isArray(element.geometry)) {
+                        wayGeometriesById.set(element.id, element.geometry);
+                    }
+                });
+
+                let count = 0;
+                data.elements.forEach((element) => {
+                    const feature = buildPlatformFeature(element, wayGeometriesById);
+                    if (feature) {
+                        platformLayer.addLayer(feature);
+                        count += 1;
+                    }
+                });
+
+                platformStatus.textContent = `Highlighted ${count} platform feature${count === 1 ? "" : "s"}. Data: OpenStreetMap (ODbL).`;
+            } catch (error) {
+                platformStatus.textContent = "Platform service unavailable right now. Try again in a few seconds.";
+            }
         }
 
         addWmsBtn.addEventListener("click", addAerialOverlay);
@@ -399,9 +587,12 @@
             }
         });
 
+        loadPlatformsBtn.addEventListener("click", loadPlatformsInView);
+
         aerialOpacityValue.textContent = `${aerialOpacityInput.value}%`;
 
         addAerialOverlay();
+        loadPlatformsInView();
 
         map.on("mousemove", (event) => {
             hoverCoords.textContent = formatCoords(event.latlng.lat, event.latlng.lng);
