@@ -8,7 +8,7 @@ const { URL } = require("url");
 const PORT = process.env.PORT ? Number(process.env.PORT) : 5510;
 const ROOT_DIR = __dirname;
 const TARGET_BASE = "http://192.168.46.51:6666";
-const TARGET_PATH = "/geoserver-datanet-inframaps-prod-servant/ows";
+const TARGET_PATH = "/replaceme";
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
   "https://lz4.overpass-api.de/api/interpreter",
