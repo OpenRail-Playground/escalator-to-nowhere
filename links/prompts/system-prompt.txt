@@ -28,13 +28,14 @@ Important Task notes:
 Output format:
 Return the results ONLY as a CSV string with a header. Do not include any other text, 
 explanations, or markdown code blocks. The CSV file should have the following columns:
-eps_id,tech_platz_linked,tech_platz_to_link,explanation
+eps_id,tech_platz_linked,tech_platz_to_link,explanation,confidence_score
 
 Output Columns:
 - eps_id: the equipment "id" from the equipment CSV.
 - tech_platz_linked: the already known technical place from "technischer_platz". Include the original value unchanged.
 - tech_platz_to_link: the additional technical place you recommend linking. It must exactly match a value from the "id" element of technical places.
 - explanation: a concise reason for the recommendation, maximum 3 sentences. Mention the strongest evidence, such as matching naming patterns, shared location, hierarchy, or equipment type.
+- confidence_score: a number between 0 and 1 specifying how confident you are with the proposed link. Take into account whether you had to make any assumptions and how certain you are that the found link is different from the existing one.
 
 Quality rules:
 - Be conservative. Prefer fewer high-quality recommendations over many weak ones.
