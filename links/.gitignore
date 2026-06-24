@@ -1,5 +1,6 @@
 .env
 data
+ui/*.csv
 temp
 __pycache__/
 ../.DS_Store

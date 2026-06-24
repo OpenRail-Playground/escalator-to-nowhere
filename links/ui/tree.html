@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aufzüge Explorer</title>
+<title>Aufzüge link Explorer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <style>
   :root {
@@ -59,7 +59,7 @@
   /* ── Detail + options panel ── */
   #detail-panel { width: 620px; flex-shrink: 0; border-left: 0.5px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
   #detail-top { padding: 18px 18px 0; }
-  #detail-top h2 { font-size: 10px; font-weight: 500; color: var(--text2); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; }
+  #detail-top h2 { font-size: 12px; font-weight: 500; color: var(--text2); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; }
   .placeholder { font-size: 12px; color: var(--text2); font-style: italic; }
   .field { margin-bottom: 12px; }
   .fl { font-size: 10px; color: var(--text2); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 2px; }
@@ -162,7 +162,7 @@ const AUTO_LOAD_TPS = "tps_data.csv";
 
 const REQUIRED_TREE = ["bahnhof_id","eps_id","tech_platz_linked","tech_platz_to_link","explanation"];
 const REQUIRED_TPS  = ["id","name","bahnhof","gleis_names"];
-const LABELS = { bahnhof_id:"Station", eps_id:"EPS", tech_platz_linked:"Linked TP", tech_platz_to_link:"To Link TP", explanation:"Explanation" };
+const LABELS = { bahnhof_id:"Station", eps_id:"EPS", tech_platz_linked:"Linked TP", tech_platz_to_link:"Link Suggestion by", explanation:"Explanation" };
 
 const STYLES = {
   station:    { fill:"#F1EFE8", stroke:"#888780", text:"#5F5E5A" },
@@ -319,7 +319,7 @@ function draw() {
     .attr("fill", d => d.data.type==="leaf"&&d.data.id===activeId ? STYLES.leafActive.fill : STYLES[d.data.type]?.fill)
     .attr("stroke", d => d.data.type==="leaf"&&d.data.id===activeId ? STYLES.leafActive.stroke : STYLES[d.data.type]?.stroke)
     .attr("stroke-width", 0.5);
-    
+
   ng.append("text")
     .attr("x",NW/2).attr("y",NH/2)
     .attr("text-anchor","middle").attr("dominant-baseline","central")
@@ -345,6 +345,10 @@ function showDetail(row) {
       ${["bahnhof_id","eps_id","tech_platz_linked","tech_platz_to_link"].map(k=>`
     <div class="field"><div class="fl">${LABELS[k]}</div><div class="fv">${row[k]}</div></div>`).join("")}
      -->   
+      
+    ${["tech_platz_to_link"].map(k=>`
+    <div class="field"><div class="fl">${LABELS[k]}</div><div class="fv">${row[k]}</div></div>`).join("")}
+    <div class="field">Confidence: 90%</div>
     <div class="expl">${row.explanation}</div>`;
 
 
@@ -353,22 +357,16 @@ function showDetail(row) {
 
   const station = row.bahnhof_id;
   const linkedInUse = new Set(DATA.map(r => r.tech_platz_linked));
-    
+
   const stationTps = TPS.filter(tp => tp.bahnhof === station);
 
   if (!stationTps.length) {
     opts.innerHTML = `<h3>TP options — ${station}</h3><p class="no-tps">No TPs found for this station in tps_data.csv</p>`;
     return;
   }
-  const linkedByThisEps = new Set(
-  DATA.filter(r => r.bahnhof_id === row.bahnhof_id && r.eps_id === row.eps_id)
-      .map(r => r.tech_platz_linked)
-  );
 
-  const stationTps = TPS.filter(tp => tp.bahnhof === row.bahnhof_id);
-  const available  = stationTps.filter(tp => !linkedByThisEps.has(tp.id));
-  const taken      = stationTps.filter(tp =>  linkedByThisEps.has(tp.id));
-
+  const available = stationTps.filter(tp => !linkedInUse.has(tp.id));
+  const taken     = stationTps.filter(tp =>  linkedInUse.has(tp.id));
 
   function tpRow(tp, isTaken) {
     return `<div class="tp-row ${isTaken?"taken":"avail"}">
