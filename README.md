@@ -87,3 +87,5 @@ Sample data:
 <!-- If you decide for another license, please change it here, and exchange the LICENSE file -->
 
 The content of this repository is licensed under the [Apache 2.0 license](LICENSE).
+
+All files under the ml folder have no copyright, as they were created by an LLM. :)
