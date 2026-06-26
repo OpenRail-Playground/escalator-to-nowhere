@@ -5,3 +5,4 @@ raw/
 *.json
 runs/
 instance_segmentation/
+.venv/
