@@ -1,0 +1,8 @@
+*.png
+*.geojson
+manifest.json
+raw/
+*.json
+runs/
+instance_segmentation/
+.venv/

@@ -1,0 +1,2101 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Leaflet + OpenStreetMap</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .search-panel {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            width: min(360px, calc(100vw - 24px));
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        .inference-panel {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 1001;
+            width: min(340px, calc(100vw - 24px));
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+            padding: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            transition: transform 160ms ease, opacity 160ms ease;
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .inference-panel.is-collapsed {
+            transform: translateX(calc(100% + 20px));
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .inference-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        #closeInferencePanelBtn {
+            width: 24px;
+            height: 24px;
+            border: 1px solid #c9d1d9;
+            background: #ffffff;
+            color: #57606a;
+            border-radius: 999px;
+            font-size: 14px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        #closeInferencePanelBtn:hover {
+            background: #f6f8fa;
+            color: #24292f;
+        }
+
+        #showInferencePanelBtn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 1002;
+            border: 1px solid #991b1b;
+            background: #b91c1c;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+        }
+
+        #showInferencePanelBtn:hover {
+            background: #991b1b;
+        }
+
+        .search-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .panel-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #24292f;
+            margin: 10px 2px 6px;
+        }
+
+        #citySearch {
+            flex: 1;
+            border: 1px solid #c9d1d9;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 14px;
+        }
+
+        #citySearchBtn {
+            border: 1px solid #2f6fec;
+            background: #2f6fec;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #citySearchBtn:hover {
+            background: #2459be;
+        }
+
+        #searchStatus {
+            margin: 8px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #wmsLayerName {
+            flex: 1;
+            border: 1px solid #c9d1d9;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 14px;
+        }
+
+        #addWmsBtn {
+            border: 1px solid #1f883d;
+            background: #1f883d;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #addWmsBtn:hover {
+            background: #186c31;
+        }
+
+        #wmsStatus {
+            margin: 8px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #loadPlatformsBtn {
+            border: 1px solid #9a6700;
+            background: #bf8700;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #loadPlatformsBtn:hover {
+            background: #9a6700;
+        }
+
+        #exportPlatformsBtn {
+            border: 1px solid #1f6feb;
+            background: #1f6feb;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #exportPlatformsBtn:hover {
+            background: #1554b2;
+        }
+
+        #exportPlatformsBtn:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+        }
+
+        #exportMlBundleBtn {
+            border: 1px solid #7c3aed;
+            background: #7c3aed;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        #exportMlBundleBtn:hover {
+            background: #5b21b6;
+        }
+
+        #exportMlBundleBtn:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+        }
+
+        #platformStatus {
+            margin: 8px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #exportStatus {
+            margin: 6px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #copyCoordsBtn,
+        #addPointBtn,
+        #clearPointsBtn {
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            color: #ffffff;
+        }
+
+        #copyCoordsBtn {
+            border: 1px solid #6d28d9;
+            background: #7c3aed;
+        }
+
+        #copyCoordsBtn:hover {
+            background: #6d28d9;
+        }
+
+        #addPointBtn {
+            border: 1px solid #0f766e;
+            background: #0d9488;
+        }
+
+        #addPointBtn:hover {
+            background: #0f766e;
+        }
+
+        #clearPointsBtn {
+            border: 1px solid #b45309;
+            background: #d97706;
+        }
+
+        #clearPointsBtn:hover {
+            background: #b45309;
+        }
+
+        #pointListInput {
+            width: 100%;
+            margin-top: 8px;
+            border: 1px solid #c9d1d9;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            font-family: Menlo, Consolas, Monaco, monospace;
+            min-height: 84px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        #pointStatus {
+            margin: 6px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #inferenceWeightsPath,
+        #inferenceScoreThreshold,
+        #inferenceDevice {
+            width: 100%;
+            margin-top: 6px;
+            border: 1px solid #c9d1d9;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            box-sizing: border-box;
+        }
+
+        #runInferenceBtn {
+            margin-top: 8px;
+            border: 1px solid #b91c1c;
+            background: #dc2626;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        #runInferenceBtn:hover {
+            background: #b91c1c;
+        }
+
+        #runInferenceBtn:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+        }
+
+        #inferenceStatus {
+            margin: 6px 2px 0;
+            color: #57606a;
+            font-size: 12px;
+            min-height: 16px;
+        }
+
+        #inferencePreview {
+            width: 100%;
+            margin-top: 8px;
+            border-radius: 8px;
+            border: 1px solid #c9d1d9;
+            display: none;
+        }
+
+        .wms-opacity-row {
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #24292f;
+        }
+
+        #aerialOpacity {
+            flex: 1;
+        }
+
+        #searchResults {
+            list-style: none;
+            margin: 8px 0 0;
+            padding: 0;
+            max-height: 220px;
+            overflow: auto;
+            border-top: 1px solid #eaeef2;
+        }
+
+        #searchResults li {
+            margin: 0;
+            padding: 0;
+        }
+
+        .result-btn {
+            width: 100%;
+            text-align: left;
+            border: 0;
+            border-bottom: 1px solid #eaeef2;
+            background: #ffffff;
+            padding: 8px 4px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .result-btn:hover {
+            background: #f6f8fa;
+        }
+
+        .coords-bar {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(900px, calc(100vw - 180px));
+            bottom: 34px;
+            z-index: 1000;
+            background: rgba(17, 24, 39, 0.9);
+            color: #ffffff;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-family: Menlo, Consolas, Monaco, monospace;
+            font-size: 12px;
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .coords-label {
+            color: #93c5fd;
+        }
+
+        .leaflet-bottom.leaflet-left .leaflet-control-zoom,
+        .leaflet-bottom.leaflet-left .leaflet-control-scale,
+        .leaflet-bottom.leaflet-right .leaflet-control-layers {
+            margin-bottom: 72px;
+        }
+
+        .leaflet-bottom.leaflet-right .leaflet-control-attribution {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 820px) {
+            .coords-bar {
+                width: calc(100vw - 24px);
+                bottom: 42px;
+                font-size: 11px;
+                gap: 8px;
+            }
+
+            .leaflet-bottom.leaflet-left .leaflet-control-zoom,
+            .leaflet-bottom.leaflet-left .leaflet-control-scale,
+            .leaflet-bottom.leaflet-right .leaflet-control-layers {
+                margin-bottom: 104px;
+            }
+
+            .leaflet-bottom.leaflet-right .leaflet-control-attribution {
+                margin-bottom: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="search-panel">
+        <div class="search-row">
+            <input id="citySearch" type="text" placeholder="Search city (e.g. Vienna, Berlin)" autocomplete="off" />
+            <button id="citySearchBtn" type="button">Search</button>
+        </div>
+        <div id="searchStatus"></div>
+        <ul id="searchResults"></ul>
+
+        <div class="panel-title">Aerial WMS Overlay</div>
+        <div class="search-row">
+            <input id="wmsLayerName" type="text" placeholder="workspace:layer_name" value="Inframaps:Orthophotos_Publiziert" autocomplete="off" />
+            <button id="addWmsBtn" type="button">Add</button>
+        </div>
+        <div class="wms-opacity-row">
+            <label for="aerialOpacity">Aerial opacity</label>
+            <input id="aerialOpacity" type="range" min="0" max="100" value="100" />
+            <span id="aerialOpacityValue">100%</span>
+        </div>
+        <div id="wmsStatus">Server: local proxy (/wms) - use technical WMS layer names</div>
+
+        <div class="panel-title">Train Platforms</div>
+        <div class="search-row">
+            <button id="loadPlatformsBtn" type="button">Load In Current View</button>
+            <button id="exportPlatformsBtn" type="button">Export Images</button>
+            <button id="exportMlBundleBtn" type="button">Export ML ZIP</button>
+        </div>
+        <div id="platformStatus"></div>
+        <div id="exportStatus"></div>
+
+        <div class="panel-title">ML Export Points</div>
+        <div class="search-row">
+            <button id="copyCoordsBtn" type="button">Copy Clicked</button>
+            <button id="addPointBtn" type="button">Add Clicked</button>
+            <button id="clearPointsBtn" type="button">Clear Points</button>
+        </div>
+        <textarea id="pointListInput" placeholder="One point per line: lat, lon"></textarea>
+        <div id="pointStatus"></div>
+
+    </div>
+    <button id="showInferencePanelBtn" type="button" aria-expanded="false">Inference</button>
+    <div id="inferencePanel" class="inference-panel">
+        <div class="inference-panel-header">
+            <div class="panel-title" style="margin: 0;">Inference Test</div>
+            <button id="closeInferencePanelBtn" type="button" aria-label="Hide inference panel">x</button>
+        </div>
+        <div id="inferenceStatus">Input: currently visible aerial map viewport</div>
+        <input id="inferenceWeightsPath" type="text" value="ml/runs/platform_instance/best.pt" placeholder="Weights path in workspace" autocomplete="off" />
+        <input id="inferenceScoreThreshold" type="number" min="0" max="1" step="0.05" value="0.5" placeholder="Score threshold" autocomplete="off" />
+        <input id="inferenceDevice" type="text" value="" placeholder="Device (optional: mps, cuda, cpu)" autocomplete="off" />
+        <button id="runInferenceBtn" type="button">Run Inference</button>
+        <img id="inferencePreview" alt="Inference preview" />
+    </div>
+    <div id="map"></div>
+    <div class="coords-bar">
+        <div><span class="coords-label">Hover:</span> <span id="hoverCoords">-</span></div>
+        <div><span class="coords-label">Clicked:</span> <span id="clickCoords">-</span></div>
+        <div><span class="coords-label">Zoom:</span> <span id="zoomLevel">-</span></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script>
+        const mapMaxZoom = 19;
+        const map = L.map("map", { maxZoom: mapMaxZoom, zoomControl: false }).setView([52.559281, 14.351497], 17);
+
+        map.createPane("aerialPane");
+        map.getPane("aerialPane").style.zIndex = 420;
+        map.createPane("railPane");
+        map.getPane("railPane").style.zIndex = 430;
+        map.createPane("platformPane");
+        map.getPane("platformPane").style.zIndex = 440;
+        map.createPane("inferencePane");
+        map.getPane("inferencePane").style.zIndex = 445;
+
+        const osmStandard = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        });
+
+        const openRailwayMap = L.tileLayer("https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png", {
+            maxZoom: mapMaxZoom,
+            pane: "railPane",
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, style: <a href="https://www.openrailwaymap.org/" target="_blank" rel="noopener">OpenRailwayMap</a>',
+        });
+
+        const aerialWmsUrl = "/wms";
+        const aerialMaxNativeZoom = 19;
+        const platformLayer = L.layerGroup();
+        const exportPointLayer = L.layerGroup();
+        const platformFillStyle = {
+            pane: "platformPane",
+            color: "#f59e0b",
+            weight: 2,
+            fillColor: "#facc15",
+            fillOpacity: 0.35,
+        };
+        const smallPlatformFillStyle = {
+            pane: "platformPane",
+            color: "#dc2626",
+            weight: 2,
+            fillColor: "#ef4444",
+            fillOpacity: 0.45,
+        };
+        const nonInfraPlatformFillStyle = {
+            pane: "platformPane",
+            color: "#1d4ed8",
+            weight: 2,
+            fillColor: "#3b82f6",
+            fillOpacity: 0.4,
+        };
+        const platformBufferWidthMeters = 3;
+        const smallPlatformAreaThresholdSqm = 20;
+
+        osmStandard.addTo(map);
+        openRailwayMap.addTo(map);
+        platformLayer.addTo(map);
+        exportPointLayer.addTo(map);
+
+        const baseLayers = {
+            "OSM Standard": osmStandard,
+        };
+        const overlayLayers = {
+            "OpenRailwayMap": openRailwayMap,
+            "Train Platforms": platformLayer,
+            "ML Export Points": exportPointLayer,
+        };
+        const layerControl = L.control.layers(baseLayers, overlayLayers, {
+            collapsed: false,
+            position: "bottomright",
+        }).addTo(map);
+        L.control.zoom({ position: "bottomleft" }).addTo(map);
+
+        L.control.scale().addTo(map);
+
+        const citySearchInput = document.getElementById("citySearch");
+        const citySearchBtn = document.getElementById("citySearchBtn");
+        const searchStatus = document.getElementById("searchStatus");
+        const searchResults = document.getElementById("searchResults");
+        const wmsLayerNameInput = document.getElementById("wmsLayerName");
+        const addWmsBtn = document.getElementById("addWmsBtn");
+        const loadPlatformsBtn = document.getElementById("loadPlatformsBtn");
+        const exportPlatformsBtn = document.getElementById("exportPlatformsBtn");
+        const exportMlBundleBtn = document.getElementById("exportMlBundleBtn");
+        const platformStatus = document.getElementById("platformStatus");
+        const exportStatus = document.getElementById("exportStatus");
+        const copyCoordsBtn = document.getElementById("copyCoordsBtn");
+        const addPointBtn = document.getElementById("addPointBtn");
+        const clearPointsBtn = document.getElementById("clearPointsBtn");
+        const pointListInput = document.getElementById("pointListInput");
+        const pointStatus = document.getElementById("pointStatus");
+        const aerialOpacityInput = document.getElementById("aerialOpacity");
+        const aerialOpacityValue = document.getElementById("aerialOpacityValue");
+        const wmsStatus = document.getElementById("wmsStatus");
+        const hoverCoords = document.getElementById("hoverCoords");
+        const clickCoords = document.getElementById("clickCoords");
+        const zoomLevel = document.getElementById("zoomLevel");
+        const inferencePanel = document.getElementById("inferencePanel");
+        const closeInferencePanelBtn = document.getElementById("closeInferencePanelBtn");
+        const showInferencePanelBtn = document.getElementById("showInferencePanelBtn");
+        const inferenceWeightsPathInput = document.getElementById("inferenceWeightsPath");
+        const inferenceScoreThresholdInput = document.getElementById("inferenceScoreThreshold");
+        const inferenceDeviceInput = document.getElementById("inferenceDevice");
+        const runInferenceBtn = document.getElementById("runInferenceBtn");
+        const inferenceStatus = document.getElementById("inferenceStatus");
+        const inferencePreview = document.getElementById("inferencePreview");
+        let selectedMarker;
+        let aerialOverlay;
+        let aerialOverlayLabel;
+        let inferenceOverlay;
+        let inferenceOverlayLabel;
+        let platformRequestId = 0;
+        let lastClickedLatLng = null;
+        const platformMinZoom = 15;
+        const mlPointSearchRadiusMeters = 800;
+        const minExportImageBytes = 5 * 1024;
+        const aerialLayerAliases = {
+            "Orthophotos Publiziert": "Inframaps:Orthophotos_Publiziert",
+        };
+        let inferencePanelCollapsed = false;
+
+        function setInferencePanelCollapsed(collapsed) {
+            inferencePanelCollapsed = !!collapsed;
+            inferencePanel.classList.toggle("is-collapsed", inferencePanelCollapsed);
+            showInferencePanelBtn.style.display = inferencePanelCollapsed ? "block" : "none";
+            showInferencePanelBtn.setAttribute("aria-expanded", String(!inferencePanelCollapsed));
+        }
+
+        function getAerialOpacity() {
+            return Number(aerialOpacityInput.value) / 100;
+        }
+
+        function formatCoords(lat, lon) {
+            return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        }
+
+        function getActionLatLng() {
+            return lastClickedLatLng || map.getCenter();
+        }
+
+        async function copyTextToClipboard(text) {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+
+            const helper = document.createElement("textarea");
+            helper.value = text;
+            helper.setAttribute("readonly", "readonly");
+            helper.style.position = "absolute";
+            helper.style.left = "-9999px";
+            document.body.appendChild(helper);
+            helper.select();
+            document.execCommand("copy");
+            document.body.removeChild(helper);
+        }
+
+        function parsePointLine(line) {
+            const normalized = line.trim();
+            if (!normalized) {
+                return null;
+            }
+
+            const parts = normalized.split(/[\s,;]+/).filter(Boolean);
+            if (parts.length < 2) {
+                return null;
+            }
+
+            const lat = Number(parts[0]);
+            const lng = Number(parts[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                return null;
+            }
+
+            return { lat, lng };
+        }
+
+        function parsePointListInput() {
+            const lines = pointListInput.value.split(/\r?\n/);
+            const points = [];
+            let invalidCount = 0;
+
+            lines.forEach((line) => {
+                if (!line.trim()) {
+                    return;
+                }
+
+                const point = parsePointLine(line);
+                if (point) {
+                    points.push(point);
+                } else {
+                    invalidCount += 1;
+                }
+            });
+
+            return { points, invalidCount };
+        }
+
+        function refreshExportPointPreview() {
+            const parsed = parsePointListInput();
+            exportPointLayer.clearLayers();
+
+            parsed.points.forEach((point, index) => {
+                L.circleMarker([point.lat, point.lng], {
+                    radius: 4,
+                    pane: "platformPane",
+                    color: "#7c3aed",
+                    fillColor: "#a78bfa",
+                    fillOpacity: 0.95,
+                    weight: 1,
+                })
+                    .bindTooltip(`P${index + 1}: ${formatCoords(point.lat, point.lng)}`)
+                    .addTo(exportPointLayer);
+            });
+
+            if (parsed.invalidCount > 0) {
+                pointStatus.textContent = `Loaded ${parsed.points.length} point${parsed.points.length === 1 ? "" : "s"}. Ignored ${parsed.invalidCount} invalid line${parsed.invalidCount === 1 ? "" : "s"}.`;
+                return;
+            }
+
+            pointStatus.textContent = `Loaded ${parsed.points.length} point${parsed.points.length === 1 ? "" : "s"}.`;
+        }
+
+        function appendPoint(point) {
+            const formatted = formatCoords(point.lat, point.lng);
+            const lines = pointListInput.value
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+
+            lines.push(formatted);
+            pointListInput.value = `${lines.join("\n")}\n`;
+            refreshExportPointPreview();
+        }
+
+        function clearResults() {
+            searchResults.innerHTML = "";
+        }
+
+        function selectPlace(place) {
+            const lat = Number(place.lat);
+            const lon = Number(place.lon);
+
+            map.setView([lat, lon], 11);
+
+            if (selectedMarker) {
+                map.removeLayer(selectedMarker);
+            }
+
+            selectedMarker = L.marker([lat, lon])
+                .addTo(map)
+                .bindPopup(place.display_name)
+                .openPopup();
+        }
+
+        function renderResults(places) {
+            clearResults();
+
+            places.forEach((place) => {
+                const item = document.createElement("li");
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "result-btn";
+                button.textContent = place.display_name;
+                button.addEventListener("click", () => selectPlace(place));
+                item.appendChild(button);
+                searchResults.appendChild(item);
+            });
+        }
+
+        async function searchCity() {
+            const query = citySearchInput.value.trim();
+            if (!query) {
+                searchStatus.textContent = "Enter a city name to search.";
+                clearResults();
+                return;
+            }
+
+            searchStatus.textContent = "Searching...";
+            clearResults();
+
+            try {
+                const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=8&addressdetails=1`;
+                const response = await fetch(url, {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error("Search request failed.");
+                }
+
+                const results = await response.json();
+
+                const cityLikeResults = results.filter((item) => {
+                    const type = item.type || "";
+                    return ["city", "town", "village", "municipality", "administrative"].includes(type);
+                });
+
+                const places = cityLikeResults.length > 0 ? cityLikeResults : results;
+
+                if (places.length === 0) {
+                    searchStatus.textContent = "No city found.";
+                    return;
+                }
+
+                searchStatus.textContent = `Found ${places.length} result${places.length === 1 ? "" : "s"}.`;
+                renderResults(places);
+                selectPlace(places[0]);
+            } catch (error) {
+                searchStatus.textContent = "Search failed. Try again in a moment.";
+            }
+        }
+
+        citySearchBtn.addEventListener("click", searchCity);
+        citySearchInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                searchCity();
+            }
+        });
+
+        function buildAerialWmsLayer(layerName) {
+            return L.tileLayer.wms(aerialWmsUrl, {
+                layers: layerName,
+                format: "image/png",
+                transparent: true,
+                version: "1.1.1",
+                pane: "aerialPane",
+                maxNativeZoom: aerialMaxNativeZoom,
+                maxZoom: aerialMaxNativeZoom,
+                opacity: getAerialOpacity(),
+                attribution: "Aerial imagery (local GeoServer)",
+            });
+        }
+
+        function resolveAerialLayerName() {
+            const rawLayerName = wmsLayerNameInput.value.trim();
+            return aerialLayerAliases[rawLayerName] || rawLayerName;
+        }
+
+        function showInferenceOverlay(outputImagePath, inputBounds) {
+            const imageUrl = `${outputImagePath}?t=${Date.now()}`;
+            const overlayBounds = L.latLngBounds(inputBounds.getSouthWest(), inputBounds.getNorthEast());
+
+            if (!inferenceOverlay) {
+                inferenceOverlay = L.imageOverlay(imageUrl, overlayBounds, {
+                    opacity: 0.75,
+                    pane: "inferencePane",
+                    interactive: false,
+                });
+                inferenceOverlayLabel = "Inference Result";
+                layerControl.addOverlay(inferenceOverlay, inferenceOverlayLabel);
+                inferenceOverlay.addTo(map);
+                inferenceOverlay.bringToFront();
+                return;
+            }
+
+            inferenceOverlay.setBounds(overlayBounds);
+            inferenceOverlay.setUrl(imageUrl);
+            if (!map.hasLayer(inferenceOverlay)) {
+                inferenceOverlay.addTo(map);
+            }
+            inferenceOverlay.bringToFront();
+        }
+
+        function addAerialOverlay() {
+            const rawLayerName = wmsLayerNameInput.value.trim();
+            const layerName = resolveAerialLayerName();
+
+            if (!layerName) {
+                wmsStatus.textContent = "Enter a WMS layer name (workspace:layer_name).";
+                return;
+            }
+
+            if (layerName !== rawLayerName) {
+                wmsLayerNameInput.value = layerName;
+            }
+
+            if (aerialOverlay) {
+                map.removeLayer(aerialOverlay);
+                if (aerialOverlayLabel) {
+                    layerControl.removeLayer(aerialOverlay);
+                }
+            }
+
+            aerialOverlay = buildAerialWmsLayer(layerName);
+            aerialOverlayLabel = `Aerial (${layerName})`;
+            layerControl.addOverlay(aerialOverlay, aerialOverlayLabel);
+            aerialOverlay.addTo(map);
+            if (map.hasLayer(openRailwayMap)) {
+                openRailwayMap.bringToFront();
+            }
+            wmsStatus.textContent = `Overlay loaded: ${layerName} (native zoom up to ${aerialMaxNativeZoom})`;
+        }
+
+        function attachPlatformMeta(layer, element) {
+            const tags = element && element.tags ? element.tags : {};
+            const operator = tags.operator || "";
+            const operatorWikidata = tags["operator:wikidata"] || "";
+            const operatorLower = operator.toLowerCase();
+            const normalizedOperator = operatorLower.replace(/[^a-z0-9]+/g, "");
+            const isDbInfrago = normalizedOperator.includes("dbinfrago");
+            const isInfraObject = isDbInfrago || operatorLower.includes("infra") || operatorWikidata === "Q122870674";
+
+            layer.platformMeta = {
+                type: element.type,
+                id: element.id,
+                ref: tags.ref || "",
+                ifopt: tags["ref:IFOPT"] || "",
+                stationId: tags["ref:station"] || tags["uic_ref"] || tags["uic:ref"] || tags["railway:ref"] || "",
+                stationName: tags.name || "",
+                ds100: tags["ref:DS100"] || "",
+                localRef: tags["local_ref"] || "",
+                operator,
+                operatorWikidata,
+                isInfraObject,
+            };
+            return layer;
+        }
+
+        function applyPlatformClassificationStyle(layer) {
+            if (typeof turf === "undefined" || !layer || typeof layer.toGeoJSON !== "function") {
+                return layer;
+            }
+
+            const feature = layer.toGeoJSON();
+            if (!feature || !feature.geometry) {
+                return layer;
+            }
+
+            const geometryType = feature.geometry.type;
+            if (geometryType !== "Polygon" && geometryType !== "MultiPolygon") {
+                return layer;
+            }
+
+            const areaSqm = turf.area(feature);
+            const isInfraObject = !!(layer.platformMeta && layer.platformMeta.isInfraObject);
+
+            if (!isInfraObject && typeof layer.setStyle === "function") {
+                layer.setStyle(nonInfraPlatformFillStyle);
+                layer.bindTooltip(`Platform (non-infra: ${areaSqm.toFixed(1)} sqm)`);
+                return layer;
+            }
+
+            if (areaSqm < smallPlatformAreaThresholdSqm && typeof layer.setStyle === "function") {
+                layer.setStyle(smallPlatformFillStyle);
+                layer.bindTooltip(`Platform (small: ${areaSqm.toFixed(1)} sqm)`);
+            }
+
+            return layer;
+        }
+
+        function buildBufferedPlatformPolygon(latLngs) {
+            if (typeof turf === "undefined") {
+                return null;
+            }
+
+            const lineCoords = latLngs.map((point) => [point[1], point[0]]);
+            const line = turf.lineString(lineCoords);
+            const buffered = turf.buffer(line, platformBufferWidthMeters, {
+                units: "meters",
+                steps: 8,
+            });
+
+            return L.geoJSON(buffered, {
+                pane: "platformPane",
+                style: platformFillStyle,
+            }).bindTooltip("Platform");
+        }
+
+        function closeRing(latLngs) {
+            if (latLngs.length === 0) {
+                return latLngs;
+            }
+
+            const first = latLngs[0];
+            const last = latLngs[latLngs.length - 1];
+            if (first[0] !== last[0] || first[1] !== last[1]) {
+                return [...latLngs, first];
+            }
+
+            return latLngs;
+        }
+
+        function buildPlatformFeature(element, wayGeometriesById) {
+
+            if (element.type === "way" && Array.isArray(element.geometry) && element.geometry.length > 1) {
+                const latLngs = element.geometry
+                    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+                    .map((point) => [point.lat, point.lon]);
+
+                if (latLngs.length < 2) {
+                    return null;
+                }
+
+                const first = latLngs[0];
+                const last = latLngs[latLngs.length - 1];
+                const isClosed = first[0] === last[0] && first[1] === last[1];
+
+                if (isClosed && latLngs.length >= 4) {
+                    return applyPlatformClassificationStyle(
+                        attachPlatformMeta(
+                            L.polygon(latLngs, platformFillStyle).bindTooltip("Platform"),
+                            element,
+                        ),
+                    );
+                }
+
+                const buffered = buildBufferedPlatformPolygon(latLngs);
+                return buffered ? applyPlatformClassificationStyle(attachPlatformMeta(buffered, element)) : null;
+            }
+
+            if (element.type === "relation" && Array.isArray(element.members)) {
+                const outerRings = element.members
+                    .filter((member) => member.type === "way" && member.role !== "inner")
+                    .map((member) => {
+                        if (Array.isArray(member.geometry)) {
+                            return member.geometry;
+                        }
+
+                        const resolvedWayGeometry = wayGeometriesById.get(member.ref);
+                        return Array.isArray(resolvedWayGeometry) ? resolvedWayGeometry : [];
+                    })
+                    .map((geometry) => geometry
+                        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+                        .map((point) => [point.lat, point.lon]))
+                    .map((latLngs) => closeRing(latLngs))
+                    .filter((latLngs) => latLngs.length >= 4);
+
+                if (outerRings.length > 0) {
+                    return applyPlatformClassificationStyle(
+                        attachPlatformMeta(
+                            L.polygon(outerRings, platformFillStyle).bindTooltip("Platform"),
+                            element,
+                        ),
+                    );
+                }
+            }
+
+            return null;
+        }
+
+        function collectPlatformRelationWayRefs(elements) {
+            const wayRefs = new Set();
+
+            elements.forEach((element) => {
+                if (element.type !== "relation" || !Array.isArray(element.members)) {
+                    return;
+                }
+
+                const tags = element.tags || {};
+                const isPlatformRelation = tags.railway === "platform" || tags.public_transport === "platform";
+                if (!isPlatformRelation) {
+                    return;
+                }
+
+                element.members.forEach((member) => {
+                    if (member.type === "way" && Number.isFinite(member.ref)) {
+                        wayRefs.add(member.ref);
+                    }
+                });
+            });
+
+            return wayRefs;
+        }
+
+        function buildBboxAroundPoint(lat, lng, radiusMeters) {
+            const latDelta = radiusMeters / 111320;
+            const cosLat = Math.cos((lat * Math.PI) / 180);
+            const lonDelta = radiusMeters / (111320 * Math.max(Math.abs(cosLat), 1e-6));
+
+            const south = Math.max(-90, lat - latDelta);
+            const north = Math.min(90, lat + latDelta);
+            const west = Math.max(-180, lng - lonDelta);
+            const east = Math.min(180, lng + lonDelta);
+
+            return `${south},${west},${north},${east}`;
+        }
+
+        function buildPlatformFeaturesFromElements(elements, seenPlatformKeys) {
+            const wayGeometriesById = new Map();
+            elements.forEach((element) => {
+                if (element.type === "way" && Number.isFinite(element.id) && Array.isArray(element.geometry)) {
+                    wayGeometriesById.set(element.id, element.geometry);
+                }
+            });
+
+            const stationCandidates = buildStationCandidates(elements, wayGeometriesById);
+            const platformRelationWayRefs = collectPlatformRelationWayRefs(elements);
+            const features = [];
+
+            elements.forEach((element) => {
+                if (element.type === "way" && platformRelationWayRefs.has(element.id)) {
+                    return;
+                }
+
+                const feature = buildPlatformFeature(element, wayGeometriesById);
+                if (!feature) {
+                    return;
+                }
+
+                assignNearestStationMeta(feature, stationCandidates);
+
+                const meta = feature.platformMeta || {};
+                const featureKey = meta.type && Number.isFinite(meta.id) ? `${meta.type}:${meta.id}` : "";
+                if (featureKey && seenPlatformKeys && seenPlatformKeys.has(featureKey)) {
+                    return;
+                }
+
+                if (featureKey && seenPlatformKeys) {
+                    seenPlatformKeys.add(featureKey);
+                }
+                features.push(feature);
+            });
+
+            return features;
+        }
+
+        function getRepresentativeLatLng(element, wayGeometriesById) {
+            if (element.type === "node" && Number.isFinite(element.lat) && Number.isFinite(element.lon)) {
+                return L.latLng(element.lat, element.lon);
+            }
+
+            const allPoints = [];
+            if (Array.isArray(element.geometry)) {
+                element.geometry.forEach((point) => {
+                    if (Number.isFinite(point.lat) && Number.isFinite(point.lon)) {
+                        allPoints.push(point);
+                    }
+                });
+            } else if (element.type === "relation" && Array.isArray(element.members)) {
+                element.members
+                    .filter((member) => member.type === "way")
+                    .forEach((member) => {
+                        const wayGeometry = wayGeometriesById.get(member.ref);
+                        if (!Array.isArray(wayGeometry)) {
+                            return;
+                        }
+                        wayGeometry.forEach((point) => {
+                            if (Number.isFinite(point.lat) && Number.isFinite(point.lon)) {
+                                allPoints.push(point);
+                            }
+                        });
+                    });
+            }
+
+            if (allPoints.length === 0) {
+                return null;
+            }
+
+            const sum = allPoints.reduce(
+                (acc, point) => ({ lat: acc.lat + point.lat, lon: acc.lon + point.lon }),
+                { lat: 0, lon: 0 },
+            );
+            return L.latLng(sum.lat / allPoints.length, sum.lon / allPoints.length);
+        }
+
+        function isStationElement(element) {
+            const tags = element && element.tags ? element.tags : {};
+            const railway = tags.railway || "";
+            const publicTransport = tags.public_transport || "";
+            return ["station", "halt", "stop"].includes(railway)
+                || publicTransport === "station"
+                || publicTransport === "stop_area";
+        }
+
+        function extractStationIdFromTags(tags) {
+            if (!tags) {
+                return "";
+            }
+
+            return tags["ref:station"] || tags["uic_ref"] || tags["uic:ref"] || tags["railway:ref"] || "";
+        }
+
+        function buildStationCandidates(elements, wayGeometriesById) {
+            return elements
+                .filter((element) => isStationElement(element))
+                .map((element) => {
+                    const tags = element.tags || {};
+                    const point = getRepresentativeLatLng(element, wayGeometriesById);
+                    if (!point) {
+                        return null;
+                    }
+
+                    return {
+                        stationId: extractStationIdFromTags(tags),
+                        stationName: tags.name || "",
+                        ifopt: tags["ref:IFOPT"] || "",
+                        ds100: tags["ref:DS100"] || "",
+                        lat: point.lat,
+                        lng: point.lng,
+                    };
+                })
+                .filter(Boolean);
+        }
+
+        function assignNearestStationMeta(layer, stationCandidates) {
+            if (!layer || !Array.isArray(stationCandidates) || stationCandidates.length === 0 || typeof layer.getBounds !== "function") {
+                return;
+            }
+
+            const center = layer.getBounds().getCenter();
+            let bestCandidate = null;
+            let bestDistance = Infinity;
+
+            stationCandidates.forEach((candidate) => {
+                const distance = map.distance(center, L.latLng(candidate.lat, candidate.lng));
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestCandidate = candidate;
+                }
+            });
+
+            if (!bestCandidate || !layer.platformMeta) {
+                return;
+            }
+
+            if (!layer.platformMeta.stationId && bestCandidate.stationId) {
+                layer.platformMeta.stationId = bestCandidate.stationId;
+            }
+            if (!layer.platformMeta.stationName && bestCandidate.stationName) {
+                layer.platformMeta.stationName = bestCandidate.stationName;
+            }
+            if (!layer.platformMeta.ifopt && bestCandidate.ifopt) {
+                layer.platformMeta.ifopt = bestCandidate.ifopt;
+            }
+            if (!layer.platformMeta.ds100 && bestCandidate.ds100) {
+                layer.platformMeta.ds100 = bestCandidate.ds100;
+            }
+        }
+
+        async function loadPlatformsInView() {
+            const requestId = ++platformRequestId;
+            const zoom = map.getZoom();
+
+            if (zoom < platformMinZoom) {
+                platformLayer.clearLayers();
+                platformStatus.textContent = `Zoom in to at least ${platformMinZoom} to load platforms.`;
+                return;
+            }
+
+            const bounds = map.getBounds();
+            const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+
+            platformStatus.textContent = "Loading platforms...";
+
+            try {
+                const response = await fetch(`/platforms?bbox=${encodeURIComponent(bbox)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (!data || !Array.isArray(data.elements)) {
+                    throw new Error("Invalid platform response");
+                }
+
+                if (requestId !== platformRequestId) {
+                    return;
+                }
+
+                platformLayer.clearLayers();
+
+                const features = buildPlatformFeaturesFromElements(data.elements);
+                features.forEach((feature) => {
+                    platformLayer.addLayer(feature);
+                });
+
+                platformStatus.textContent = `Highlighted ${features.length} platform feature${features.length === 1 ? "" : "s"}. Data: OpenStreetMap (ODbL).`;
+            } catch (error) {
+                platformStatus.textContent = "Platform service unavailable right now. Try again in a few seconds.";
+            }
+        }
+
+        function flattenGeoJsonRings(geometry) {
+            if (!geometry || !geometry.type || !Array.isArray(geometry.coordinates)) {
+                return [];
+            }
+
+            if (geometry.type === "Polygon") {
+                return geometry.coordinates.map((ring) => ring.map((coord) => L.latLng(coord[1], coord[0])));
+            }
+
+            if (geometry.type === "MultiPolygon") {
+                return geometry.coordinates.flatMap((polygon) =>
+                    polygon.map((ring) => ring.map((coord) => L.latLng(coord[1], coord[0]))),
+                );
+            }
+
+            return [];
+        }
+
+        function sanitizeFileNameSegment(value) {
+            return String(value)
+                .replace(/[^a-zA-Z0-9_-]+/g, "_")
+                .replace(/^_+|_+$/g, "")
+                .slice(0, 60);
+        }
+
+        function extractStationId(meta) {
+            if (meta.stationId) {
+                return meta.stationId;
+            }
+
+            if (meta.ifopt) {
+                const parts = meta.ifopt.split(":").filter(Boolean);
+                if (parts.length >= 3) {
+                    return parts[parts.length - 2];
+                }
+            }
+
+            if (meta.stationName) {
+                return meta.stationName;
+            }
+
+            return "unknown_station";
+        }
+
+        function buildExportBaseName(index, layer, partIndex) {
+            const meta = layer.platformMeta || {};
+            const stationId = sanitizeFileNameSegment(extractStationId(meta)) || "unknown_station";
+
+            const additionalSegments = [
+                meta.ref ? `platform_${meta.ref}` : "",
+                meta.localRef ? `local_${meta.localRef}` : "",
+                meta.ds100 ? `ds100_${meta.ds100}` : "",
+                meta.ifopt ? `ifopt_${meta.ifopt}` : "",
+                meta.type && meta.id ? `${meta.type}_${meta.id}` : "",
+            ]
+                .map((segment) => sanitizeFileNameSegment(segment))
+                .filter(Boolean);
+
+            const suffix = additionalSegments.join("_").slice(0, 140);
+            const partSuffix = partIndex > 0 ? `_part_${String(partIndex + 1).padStart(3, "0")}` : "";
+            return `${stationId}_${String(index + 1).padStart(3, "0")}_${suffix || "platform"}${partSuffix}`;
+        }
+
+        function buildExportImageName(index, layer, partIndex) {
+            return `${buildExportBaseName(index, layer, partIndex)}.png`;
+        }
+
+        function buildExportLabelName(index, layer, partIndex) {
+            return `${buildExportBaseName(index, layer, partIndex)}.geojson`;
+        }
+
+        function buildPointExportBaseName(index, point) {
+            const latSegment = String(point.lat.toFixed(6)).replace(/[^a-zA-Z0-9-]+/g, "_").replace(/^-/, "m");
+            const lngSegment = String(point.lng.toFixed(6)).replace(/[^a-zA-Z0-9-]+/g, "_").replace(/^-/, "m");
+            return `point_${String(index + 1).padStart(3, "0")}_lat_${latSegment}_lon_${lngSegment}`;
+        }
+
+        function collectPlatformPolygonLayers() {
+            const platformFeatures = collectPlatformPolygonLayers();
+            return platformFeatures;
+        }
+
+        function getPixelBoundsFromRings(rings, zoom) {
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
+
+            rings.forEach((ring) => {
+                ring.forEach((latLng) => {
+                    const pixelPoint = map.options.crs.latLngToPoint(latLng, zoom);
+                    minX = Math.min(minX, pixelPoint.x);
+                    minY = Math.min(minY, pixelPoint.y);
+                    maxX = Math.max(maxX, pixelPoint.x);
+                    maxY = Math.max(maxY, pixelPoint.y);
+                });
+            });
+
+            return { minX, minY, maxX, maxY };
+        }
+
+        function getTileBoundsBboxMeters(tileX, tileY, zoom) {
+            const northWest = map.options.crs.pointToLatLng(L.point(tileX * 256, tileY * 256), zoom);
+            const southEast = map.options.crs.pointToLatLng(L.point((tileX + 1) * 256, (tileY + 1) * 256), zoom);
+            const projectedNW = map.options.crs.project(northWest);
+            const projectedSE = map.options.crs.project(southEast);
+
+            return {
+                minX: projectedNW.x,
+                minY: projectedSE.y,
+                maxX: projectedSE.x,
+                maxY: projectedNW.y,
+            };
+        }
+
+        function buildTilePolygonFeature(tileX, tileY, zoom) {
+            const northWest = map.options.crs.pointToLatLng(L.point(tileX * 256, tileY * 256), zoom);
+            const southEast = map.options.crs.pointToLatLng(L.point((tileX + 1) * 256, (tileY + 1) * 256), zoom);
+            const southWest = L.latLng(southEast.lat, northWest.lng);
+            const northEast = L.latLng(northWest.lat, southEast.lng);
+
+            return turf.polygon([[
+                [northWest.lng, northWest.lat],
+                [northEast.lng, northEast.lat],
+                [southEast.lng, southEast.lat],
+                [southWest.lng, southWest.lat],
+                [northWest.lng, northWest.lat],
+            ]]);
+        }
+
+        async function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error("Failed to load aerial image"));
+                image.src = src;
+            });
+        }
+
+        function downloadDataUrl(dataUrl, fileName) {
+            const downloadLink = document.createElement("a");
+            downloadLink.href = dataUrl;
+            downloadLink.download = fileName;
+            downloadLink.click();
+        }
+
+        function dataUrlToUint8Array(dataUrl) {
+            const commaIndex = dataUrl.indexOf(",");
+            const base64 = dataUrl.slice(commaIndex + 1);
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        function getDataUrlByteSize(dataUrl) {
+            return dataUrlToUint8Array(dataUrl).length;
+        }
+
+        function downloadJson(jsonObject, fileName) {
+            const blob = new Blob([JSON.stringify(jsonObject)], { type: "application/geo+json" });
+            const url = URL.createObjectURL(blob);
+            const downloadLink = document.createElement("a");
+            downloadLink.href = url;
+            downloadLink.download = fileName;
+            downloadLink.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function convertGeometryToPixelCoords(geometry, zoom, tileX, tileY) {
+            const tileOrigin = L.point(tileX * 256, tileY * 256);
+
+            const convertCoord = (coord) => {
+                const latLng = L.latLng(coord[1], coord[0]);
+                const point = map.options.crs.latLngToPoint(latLng, zoom);
+                const x = point.x - tileOrigin.x;
+                const y = point.y - tileOrigin.y;
+                return [x, y];
+            };
+
+            if (geometry.type === "Polygon") {
+                return {
+                    type: "Polygon",
+                    coordinates: geometry.coordinates.map((ring) => ring.map(convertCoord)),
+                };
+            }
+
+            if (geometry.type === "MultiPolygon") {
+                return {
+                    type: "MultiPolygon",
+                    coordinates: geometry.coordinates.map((polygon) =>
+                        polygon.map((ring) => ring.map(convertCoord)),
+                    ),
+                };
+            }
+
+            return null;
+        }
+
+        function clipPlatformRingsToTileCanvas(ctx, rings, zoom, tileX, tileY) {
+            const tileOrigin = L.point(tileX * 256, tileY * 256);
+
+            ctx.beginPath();
+            rings.forEach((ring) => {
+                ring.forEach((latLng, index) => {
+                    const point = map.options.crs.latLngToPoint(latLng, zoom);
+                    const x = point.x - tileOrigin.x;
+                    const y = point.y - tileOrigin.y;
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.closePath();
+            });
+            ctx.clip("evenodd");
+        }
+
+        async function exportPlatformImages(layerName, layer, index) {
+            const geoJson = layer.toGeoJSON();
+            const rings = flattenGeoJsonRings(geoJson.geometry);
+            if (rings.length === 0) {
+                return 0;
+            }
+
+            const feature = turf.feature(geoJson.geometry, geoJson.properties || {});
+            const exportZoom = Math.min(mapMaxZoom, aerialMaxNativeZoom);
+            const pixelBounds = getPixelBoundsFromRings(rings, exportZoom);
+            if (!Number.isFinite(pixelBounds.minX) || !Number.isFinite(pixelBounds.maxX)) {
+                return 0;
+            }
+
+            const minTileX = Math.floor(pixelBounds.minX / 256);
+            const maxTileX = Math.floor(pixelBounds.maxX / 256);
+            const minTileY = Math.floor(pixelBounds.minY / 256);
+            const maxTileY = Math.floor(pixelBounds.maxY / 256);
+
+            let exportedParts = 0;
+
+            for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+                for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+                    const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
+                    const clippedFeature = turf.intersect(feature, tilePolygon);
+                    if (!clippedFeature || !clippedFeature.geometry) {
+                        continue;
+                    }
+
+                    const clippedGeometry = clippedFeature.geometry;
+                    if (clippedGeometry.type !== "Polygon" && clippedGeometry.type !== "MultiPolygon") {
+                        continue;
+                    }
+
+                    const bbox = getTileBoundsBboxMeters(tileX, tileY, exportZoom);
+                    const params = new URLSearchParams({
+                        service: "WMS",
+                        request: "GetMap",
+                        layers: layerName,
+                        styles: "",
+                        format: "image/png",
+                        transparent: "true",
+                        version: "1.1.1",
+                        srs: "EPSG:3857",
+                        bbox: `${bbox.minX},${bbox.minY},${bbox.maxX},${bbox.maxY}`,
+                        width: "256",
+                        height: "256",
+                    });
+
+                    const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+                    const outputCanvas = document.createElement("canvas");
+                    outputCanvas.width = 256;
+                    outputCanvas.height = 256;
+                    const outputCtx = outputCanvas.getContext("2d");
+                    outputCtx.save();
+                    clipPlatformRingsToTileCanvas(outputCtx, rings, exportZoom, tileX, tileY);
+                    outputCtx.drawImage(sourceImage, 0, 0, 256, 256);
+                    outputCtx.restore();
+
+                    const dataUrl = outputCanvas.toDataURL("image/png");
+                    if (getDataUrlByteSize(dataUrl) < minExportImageBytes) {
+                        continue;
+                    }
+
+                    const imageName = buildExportImageName(index, layer, exportedParts);
+                    const labelName = buildExportLabelName(index, layer, exportedParts);
+
+                    downloadDataUrl(dataUrl, imageName);
+
+                    const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
+                    if (pixelGeometry) {
+                        const labelGeoJson = {
+                            type: "FeatureCollection",
+                            features: [
+                                {
+                                    type: "Feature",
+                                    properties: {
+                                        class: "platform",
+                                        station_id: extractStationId(layer.platformMeta || {}),
+                                        tile_x: tileX,
+                                        tile_y: tileY,
+                                        zoom: exportZoom,
+                                        part_index: exportedParts,
+                                    },
+                                    geometry: pixelGeometry,
+                                },
+                            ],
+                        };
+                        downloadJson(labelGeoJson, labelName);
+                    }
+
+                    exportedParts += 1;
+                }
+            }
+
+            return exportedParts;
+        }
+
+        async function collectPlatformExports(layerName, layer, index) {
+            const geoJson = layer.toGeoJSON();
+            const rings = flattenGeoJsonRings(geoJson.geometry);
+            if (rings.length === 0) {
+                return [];
+            }
+
+            const feature = turf.feature(geoJson.geometry, geoJson.properties || {});
+            const exportZoom = Math.min(mapMaxZoom, aerialMaxNativeZoom);
+            const pixelBounds = getPixelBoundsFromRings(rings, exportZoom);
+            if (!Number.isFinite(pixelBounds.minX) || !Number.isFinite(pixelBounds.maxX)) {
+                return [];
+            }
+
+            const minTileX = Math.floor(pixelBounds.minX / 256);
+            const maxTileX = Math.floor(pixelBounds.maxX / 256);
+            const minTileY = Math.floor(pixelBounds.minY / 256);
+            const maxTileY = Math.floor(pixelBounds.maxY / 256);
+
+            const outputs = [];
+            let exportedParts = 0;
+
+            for (let tileY = minTileY; tileY <= maxTileY; tileY += 1) {
+                for (let tileX = minTileX; tileX <= maxTileX; tileX += 1) {
+                    const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
+                    const clippedFeature = turf.intersect(feature, tilePolygon);
+                    if (!clippedFeature || !clippedFeature.geometry) {
+                        continue;
+                    }
+
+                    const clippedGeometry = clippedFeature.geometry;
+                    if (clippedGeometry.type !== "Polygon" && clippedGeometry.type !== "MultiPolygon") {
+                        continue;
+                    }
+
+                    const bbox = getTileBoundsBboxMeters(tileX, tileY, exportZoom);
+                    const params = new URLSearchParams({
+                        service: "WMS",
+                        request: "GetMap",
+                        layers: layerName,
+                        styles: "",
+                        format: "image/png",
+                        transparent: "true",
+                        version: "1.1.1",
+                        srs: "EPSG:3857",
+                        bbox: `${bbox.minX},${bbox.minY},${bbox.maxX},${bbox.maxY}`,
+                        width: "256",
+                        height: "256",
+                    });
+
+                    const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+                    const outputCanvas = document.createElement("canvas");
+                    outputCanvas.width = 256;
+                    outputCanvas.height = 256;
+                    const outputCtx = outputCanvas.getContext("2d");
+                    outputCtx.save();
+                    clipPlatformRingsToTileCanvas(outputCtx, rings, exportZoom, tileX, tileY);
+                    outputCtx.drawImage(sourceImage, 0, 0, 256, 256);
+                    outputCtx.restore();
+
+                    const imageName = buildExportImageName(index, layer, exportedParts);
+                    const labelName = buildExportLabelName(index, layer, exportedParts);
+                    const imageDataUrl = outputCanvas.toDataURL("image/png");
+                    if (getDataUrlByteSize(imageDataUrl) < minExportImageBytes) {
+                        continue;
+                    }
+
+                    const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
+                    if (!pixelGeometry) {
+                        continue;
+                    }
+
+                    const labelGeoJson = {
+                        type: "FeatureCollection",
+                        features: [
+                            {
+                                type: "Feature",
+                                properties: {
+                                    class: "platform",
+                                    station_id: extractStationId(layer.platformMeta || {}),
+                                    tile_x: tileX,
+                                    tile_y: tileY,
+                                    zoom: exportZoom,
+                                    part_index: exportedParts,
+                                },
+                                geometry: pixelGeometry,
+                            },
+                        ],
+                    };
+
+                    outputs.push({
+                        imageName,
+                        labelName,
+                        imageDataUrl,
+                        labelGeoJson,
+                    });
+                    exportedParts += 1;
+                }
+            }
+
+            return outputs;
+        }
+
+        async function collectPointMlExport(layerName, point, index, platformFeatures) {
+            const exportZoom = Math.min(mapMaxZoom, aerialMaxNativeZoom);
+            const centerPixel = map.options.crs.latLngToPoint(L.latLng(point.lat, point.lng), exportZoom);
+            const tileX = Math.floor(centerPixel.x / 256);
+            const tileY = Math.floor(centerPixel.y / 256);
+            const tilePolygon = buildTilePolygonFeature(tileX, tileY, exportZoom);
+
+            const bbox = getTileBoundsBboxMeters(tileX, tileY, exportZoom);
+            const params = new URLSearchParams({
+                service: "WMS",
+                request: "GetMap",
+                layers: layerName,
+                styles: "",
+                format: "image/png",
+                transparent: "true",
+                version: "1.1.1",
+                srs: "EPSG:3857",
+                bbox: `${bbox.minX},${bbox.minY},${bbox.maxX},${bbox.maxY}`,
+                width: "256",
+                height: "256",
+            });
+
+            const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+            const outputCanvas = document.createElement("canvas");
+            outputCanvas.width = 256;
+            outputCanvas.height = 256;
+            const outputCtx = outputCanvas.getContext("2d");
+            outputCtx.drawImage(sourceImage, 0, 0, 256, 256);
+
+            const labelFeatures = [];
+            platformFeatures.forEach((platformLayerItem) => {
+                const geoJson = platformLayerItem.toGeoJSON();
+                const feature = turf.feature(geoJson.geometry, geoJson.properties || {});
+                const clippedFeature = turf.intersect(feature, tilePolygon);
+                if (!clippedFeature || !clippedFeature.geometry) {
+                    return;
+                }
+
+                const clippedGeometry = clippedFeature.geometry;
+                if (clippedGeometry.type !== "Polygon" && clippedGeometry.type !== "MultiPolygon") {
+                    return;
+                }
+
+                const pixelGeometry = convertGeometryToPixelCoords(clippedGeometry, exportZoom, tileX, tileY);
+                if (!pixelGeometry) {
+                    return;
+                }
+
+                labelFeatures.push({
+                    type: "Feature",
+                    properties: {
+                        class: "platform",
+                        station_id: extractStationId(platformLayerItem.platformMeta || {}),
+                    },
+                    geometry: pixelGeometry,
+                });
+            });
+
+            const baseName = buildPointExportBaseName(index, point);
+            return {
+                imageName: `${baseName}.png`,
+                labelName: `${baseName}.geojson`,
+                imageDataUrl: outputCanvas.toDataURL("image/png"),
+                labelGeoJson: {
+                    type: "FeatureCollection",
+                    features: labelFeatures,
+                },
+                lat: point.lat,
+                lng: point.lng,
+                tileX,
+                tileY,
+                zoom: exportZoom,
+            };
+        }
+
+        async function exportPlatforms() {
+            const layerName = resolveAerialLayerName();
+            if (!layerName) {
+                exportStatus.textContent = "Set a valid aerial layer name first.";
+                return;
+            }
+
+            const platformFeatures = collectPlatformPolygonLayers();
+
+            if (platformFeatures.length === 0) {
+                exportStatus.textContent = "No platform polygons available. Load platforms first.";
+                return;
+            }
+
+            exportPlatformsBtn.disabled = true;
+            let exportedCount = 0;
+
+            try {
+                for (let index = 0; index < platformFeatures.length; index += 1) {
+                    exportStatus.textContent = `Exporting ${index + 1}/${platformFeatures.length}...`;
+                    const exportedParts = await exportPlatformImages(layerName, platformFeatures[index], index);
+                    exportedCount += exportedParts;
+                }
+                exportStatus.textContent = `Exported ${exportedCount} image${exportedCount === 1 ? "" : "s"} at max zoom.`;
+            } catch (error) {
+                exportStatus.textContent = "Export failed. Ensure aerial layer is available and try again.";
+            } finally {
+                exportPlatformsBtn.disabled = false;
+            }
+        }
+
+        async function exportPlatformsMlBundle() {
+            if (typeof JSZip === "undefined") {
+                exportStatus.textContent = "JSZip is not available. Reload the page and try again.";
+                return;
+            }
+
+            const layerName = resolveAerialLayerName();
+            if (!layerName) {
+                exportStatus.textContent = "Set a valid aerial layer name first.";
+                return;
+            }
+
+            const parsedPoints = parsePointListInput();
+            if (parsedPoints.points.length === 0) {
+                exportStatus.textContent = "No export points available. Add points first.";
+                return;
+            }
+
+            if (parsedPoints.invalidCount > 0) {
+                exportStatus.textContent = `Fix invalid point rows first (${parsedPoints.invalidCount}).`;
+                return;
+            }
+
+            exportPlatformsBtn.disabled = true;
+            exportMlBundleBtn.disabled = true;
+
+            try {
+                const zip = new JSZip();
+                const imagesFolder = zip.folder("raw/images");
+                const labelsFolder = zip.folder("raw/labels");
+                const manifest = [];
+                let exportedCount = 0;
+                const failedPoints = [];
+                const seenPlatformKeys = new Set();
+                let platformExportIndex = 0;
+
+                for (let index = 0; index < parsedPoints.points.length; index += 1) {
+                    exportStatus.textContent = `Loading platforms for point ${index + 1}/${parsedPoints.points.length}...`;
+                    try {
+                        const point = parsedPoints.points[index];
+                        const bbox = buildBboxAroundPoint(point.lat, point.lng, mlPointSearchRadiusMeters);
+                        const response = await fetch(`/platforms?bbox=${encodeURIComponent(bbox)}`);
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+
+                        const data = await response.json();
+                        if (!data || !Array.isArray(data.elements)) {
+                            throw new Error("Invalid platform response");
+                        }
+
+                        const platformFeatures = buildPlatformFeaturesFromElements(data.elements, seenPlatformKeys);
+                        if (platformFeatures.length === 0) {
+                            failedPoints.push({
+                                index: index + 1,
+                                lat: point.lat,
+                                lon: point.lng,
+                                reason: "No platforms found near this point",
+                            });
+                            continue;
+                        }
+
+                        for (let featureIndex = 0; featureIndex < platformFeatures.length; featureIndex += 1) {
+                            const items = await collectPlatformExports(layerName, platformFeatures[featureIndex], platformExportIndex);
+                            platformExportIndex += 1;
+
+                            items.forEach((item) => {
+                                imagesFolder.file(item.imageName, dataUrlToUint8Array(item.imageDataUrl), { binary: true });
+                                labelsFolder.file(item.labelName, JSON.stringify(item.labelGeoJson));
+                                manifest.push({
+                                    image: `raw/images/${item.imageName}`,
+                                    label: `raw/labels/${item.labelName}`,
+                                    source_point_index: index + 1,
+                                    source_point_lat: point.lat,
+                                    source_point_lon: point.lng,
+                                });
+                                exportedCount += 1;
+                            });
+                        }
+                    } catch (error) {
+                        failedPoints.push({
+                            index: index + 1,
+                            lat: parsedPoints.points[index].lat,
+                            lon: parsedPoints.points[index].lng,
+                            reason: error && error.message ? error.message : "unknown error",
+                        });
+                    }
+                }
+
+                if (exportedCount === 0) {
+                    const failedSummary = failedPoints.length > 0 ? ` First failure: point ${failedPoints[0].index} (${formatCoords(failedPoints[0].lat, failedPoints[0].lon)}).` : "";
+                    exportStatus.textContent = `ML ZIP export failed for all points.${failedSummary}`;
+                    return;
+                }
+
+                zip.file("raw/manifest.json", JSON.stringify({
+                    count: exportedCount,
+                    failed_count: failedPoints.length,
+                    failed_points: failedPoints,
+                    items: manifest,
+                }, null, 2));
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+
+                const zipUrl = URL.createObjectURL(zipBlob);
+                const link = document.createElement("a");
+                link.href = zipUrl;
+                link.download = "platform_ml_export.zip";
+                link.click();
+                URL.revokeObjectURL(zipUrl);
+
+                exportStatus.textContent = failedPoints.length > 0
+                    ? `Created ML ZIP with ${exportedCount} platform image/label pairs. Skipped ${failedPoints.length} point(s).`
+                    : `Created ML ZIP with ${exportedCount} platform image/label pairs.`;
+            } catch (error) {
+                exportStatus.textContent = `ML ZIP export failed: ${error && error.message ? error.message : "unknown error"}`;
+            } finally {
+                exportPlatformsBtn.disabled = false;
+                exportMlBundleBtn.disabled = false;
+            }
+        }
+
+        async function runFrontendInference() {
+            const weightsPath = inferenceWeightsPathInput.value.trim();
+            const scoreThreshold = Number(inferenceScoreThresholdInput.value);
+            const device = inferenceDeviceInput.value.trim();
+
+            if (!aerialOverlay || !map.hasLayer(aerialOverlay)) {
+                inferenceStatus.textContent = "Enable the aerial layer first.";
+                return;
+            }
+
+            const viewportSize = map.getSize();
+            const width = Math.max(64, Math.round(viewportSize.x));
+            const height = Math.max(64, Math.round(viewportSize.y));
+
+            const bounds = map.getBounds();
+            const inferenceInputBounds = L.latLngBounds(bounds.getSouthWest(), bounds.getNorthEast());
+            const northWest = bounds.getNorthWest();
+            const southEast = bounds.getSouthEast();
+            const projectedNW = map.options.crs.project(northWest);
+            const projectedSE = map.options.crs.project(southEast);
+            const layerName = resolveAerialLayerName();
+
+            if (!layerName) {
+                inferenceStatus.textContent = "Set a valid aerial layer name first.";
+                return;
+            }
+
+            runInferenceBtn.disabled = true;
+            inferenceStatus.textContent = "Rendering current aerial viewport...";
+
+            try {
+                const params = new URLSearchParams({
+                    service: "WMS",
+                    request: "GetMap",
+                    layers: layerName,
+                    styles: "",
+                    format: "image/png",
+                    transparent: "true",
+                    version: "1.1.1",
+                    srs: "EPSG:3857",
+                    bbox: `${projectedNW.x},${projectedSE.y},${projectedSE.x},${projectedNW.y}`,
+                    width: String(width),
+                    height: String(height),
+                });
+
+                const sourceImage = await loadImage(`${aerialWmsUrl}?${params.toString()}`);
+                const viewportCanvas = document.createElement("canvas");
+                viewportCanvas.width = width;
+                viewportCanvas.height = height;
+                const viewportCtx = viewportCanvas.getContext("2d");
+                viewportCtx.drawImage(sourceImage, 0, 0, width, height);
+                const imageDataUrl = viewportCanvas.toDataURL("image/png");
+
+                inferenceStatus.textContent = "Running inference on visible aerial map...";
+                const payload = {
+                    imageDataUrl,
+                    imageName: `map_view_z${map.getZoom()}`,
+                    weightsPath,
+                    scoreThreshold,
+                };
+                if (device) {
+                    payload.device = device;
+                }
+
+                const response = await fetch("/infer", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const result = await response.json();
+                if (!response.ok) {
+                    throw new Error(result && result.error ? result.error : `HTTP ${response.status}`);
+                }
+
+                inferencePreview.src = `${result.outputImagePath}?t=${Date.now()}`;
+                inferencePreview.style.display = "block";
+                showInferenceOverlay(result.outputImagePath, inferenceInputBounds);
+                inferenceStatus.textContent = `Inference complete. Output: ${result.outputImagePath}`;
+            } catch (error) {
+                inferenceStatus.textContent = `Inference failed: ${error && error.message ? error.message : "unknown error"}`;
+            } finally {
+                runInferenceBtn.disabled = false;
+            }
+        }
+
+        addWmsBtn.addEventListener("click", addAerialOverlay);
+        wmsLayerNameInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                addAerialOverlay();
+            }
+        });
+
+        aerialOpacityInput.addEventListener("input", () => {
+            const opacity = getAerialOpacity();
+            aerialOpacityValue.textContent = `${Math.round(opacity * 100)}%`;
+            if (aerialOverlay) {
+                aerialOverlay.setOpacity(opacity);
+            }
+        });
+
+        loadPlatformsBtn.addEventListener("click", loadPlatformsInView);
+        exportPlatformsBtn.addEventListener("click", exportPlatforms);
+        exportMlBundleBtn.addEventListener("click", exportPlatformsMlBundle);
+        runInferenceBtn.addEventListener("click", runFrontendInference);
+        closeInferencePanelBtn.addEventListener("click", () => {
+            setInferencePanelCollapsed(true);
+        });
+        showInferencePanelBtn.addEventListener("click", () => {
+            setInferencePanelCollapsed(false);
+        });
+        copyCoordsBtn.addEventListener("click", async () => {
+            const point = getActionLatLng();
+            const text = formatCoords(point.lat, point.lng);
+            try {
+                await copyTextToClipboard(text);
+                pointStatus.textContent = `Copied: ${text}`;
+            } catch (error) {
+                pointStatus.textContent = "Could not copy coordinates to clipboard.";
+            }
+        });
+        addPointBtn.addEventListener("click", () => {
+            appendPoint(getActionLatLng());
+        });
+        clearPointsBtn.addEventListener("click", () => {
+            pointListInput.value = "";
+            refreshExportPointPreview();
+        });
+        pointListInput.addEventListener("input", refreshExportPointPreview);
+
+        aerialOpacityValue.textContent = `${aerialOpacityInput.value}%`;
+
+        addAerialOverlay();
+        loadPlatformsInView();
+
+        map.on("mousemove", (event) => {
+            hoverCoords.textContent = formatCoords(event.latlng.lat, event.latlng.lng);
+        });
+
+        function handleCoordinatePick(latlng) {
+            if (!latlng) {
+                return;
+            }
+            lastClickedLatLng = latlng;
+            clickCoords.textContent = formatCoords(latlng.lat, latlng.lng);
+        }
+
+        map.on("click", (event) => {
+            handleCoordinatePick(event.latlng);
+        });
+
+        platformLayer.on("click", (event) => {
+            handleCoordinatePick(event.latlng);
+        });
+
+        exportPointLayer.on("click", (event) => {
+            handleCoordinatePick(event.latlng);
+        });
+
+        function updateZoomLevel() {
+            zoomLevel.textContent = String(map.getZoom());
+        }
+
+        map.on("zoomend", updateZoomLevel);
+        updateZoomLevel();
+        refreshExportPointPreview();
+        setInferencePanelCollapsed(false);
+    </script>
+</body>
+
+</html>
