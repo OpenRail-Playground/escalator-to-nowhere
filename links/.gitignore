@@ -1,0 +1,9 @@
+.env
+data
+ui/*.csv
+temp
+__pycache__/
+../.DS_Store
+.DS_Store
+out
+__pycache__/

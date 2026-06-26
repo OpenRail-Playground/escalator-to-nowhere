@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aufzüge link Explorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --bg2: #f5f4f0; --bg3: #eceae3;
+    --text: #1a1a18; --text2: #6b6a64; --border: rgba(0,0,0,0.12);
+    --purple-50: #EEEDFE; --purple-200: #AFA9EC; --purple-400: #7F77DD; --purple-600: #534AB7; --purple-800: #3C3489;
+    --teal-50: #E1F5EE; --teal-200: #5DCAA5; --teal-400: #1D9E75; --teal-600: #0F6E56;
+    --gray-50: #F1EFE8; --gray-400: #888780; --gray-600: #5F5E5A;
+    --green: #1D9E75; --green-bg: #E1F5EE;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a; --bg2: #242422; --bg3: #2e2e2b;
+      --text: #e8e6de; --text2: #9c9a92; --border: rgba(255,255,255,0.1);
+      --purple-50: #26215C; --purple-200: #3C3489; --purple-400: #7F77DD; --purple-600: #AFA9EC; --purple-800: #CECBF6;
+      --teal-50: #04342C; --teal-200: #085041; --teal-400: #5DCAA5; --teal-600: #9FE1CB;
+      --gray-50: #2C2C2A; --gray-400: #888780; --gray-600: #B4B2A9;
+      --green: #5DCAA5; --green-bg: #04342C;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; font-size: 13px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 0.5px solid var(--border); gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 14px; font-weight: 500; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; border: 0.5px solid var(--border); border-radius: 8px; background: var(--bg2); color: var(--text); transition: background 0.12s; }
+  .btn:hover { background: var(--bg3); }
+  .btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+  .btn-reload { display: none; }
+  main { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+  /* ── Drop zone ── */
+  #drop-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+  #drop-zone { border: 1.5px dashed var(--border); border-radius: 14px; padding: 48px 40px; text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s; max-width: 500px; width: 100%; }
+  #drop-zone:hover, #drop-zone.drag-over { border-color: var(--purple-400); background: var(--purple-50); }
+  #drop-zone p { font-size: 13px; color: var(--text2); margin-top: 10px; }
+  #drop-zone strong { color: var(--text); }
+  #drop-zone .hint { font-size: 11px; margin-top: 6px; color: var(--text2); opacity: 0.7; line-height: 1.6; }
+  #file-input, #file-input-tps { display: none; }
+  #error-msg { color: #A32D2D; font-size: 12px; margin-top: 10px; }
+  .upload-row { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  .upload-btn { padding: 7px 16px; border-radius: 8px; border: 0.5px solid var(--border); background: var(--bg2); color: var(--text); font-size: 12px; cursor: pointer; transition: background 0.12s; }
+  .upload-btn:hover { background: var(--bg3); }
+  .upload-btn.loaded { background: var(--green-bg); border-color: var(--teal-200); color: var(--teal-600); }
+
+  /* ── App layout ── */
+  #app { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  #legend { display: flex; gap: 14px; padding: 8px 20px; flex-wrap: wrap; align-items: center; border-bottom: 0.5px solid var(--border); font-size: 11px; color: var(--text2); }
+  .ld { width: 9px; height: 9px; border-radius: 3px; border: 0.5px solid; display: inline-block; margin-right: 4px; vertical-align: middle; }
+  #app-body { display: flex; flex: 1; overflow: hidden; }
+  #tree-scroll { flex: 1; overflow: auto; padding: 32px 28px; }
+  #tree-svg { display: block; }
+
+  /* ── Detail + options panel ── */
+  #detail-panel { width: 620px; flex-shrink: 0; border-left: 0.5px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #detail-top { padding: 18px 18px 0; }
+  #detail-top h2 { font-size: 12px; font-weight: 500; color: var(--text2); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; }
+  .placeholder { font-size: 12px; color: var(--text2); font-style: italic; }
+  .field { margin-bottom: 12px; }
+  .fl { font-size: 10px; color: var(--text2); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 2px; }
+  .fv { font-size: 13px; font-weight: 500; color: var(--text); }
+  .expl { padding: 8px 10px; background: var(--bg2); border-radius: 8px; font-size: 17px; color: var(--text2); line-height: 1.5; font-style: italic; margin-top: 4px; }
+  #detail-divider { height: 0.5px; background: var(--border); margin: 14px 0 0; }
+
+  /* ── TP options ── */
+  #tp-options { flex: 1; overflow-y: auto; padding: 14px 18px; background: var(--bg2); }
+  #tp-options h3 { font-size: 10px; font-weight: 500; color: var(--text2); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px; }
+  .tp-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; margin-bottom: 4px; border: 0.5px solid transparent; }
+  .tp-row.avail { background: var(--bg); border-color: var(--border); cursor: default; }
+  .tp-row.taken { opacity: 0.45; }
+  .tp-left .tr-id { font-size: 13px; font-weight: 500; color: var(--text); }
+  .tp-left .tr-name { font-size: 11px; color: var(--text2); margin-top: 1px; }
+  .tp-right { text-align: right; }
+  .tr-gleis { font-size: 11px; color: var(--green); font-weight: 500; }
+  .tr-status { font-size: 10px; color: var(--text2); margin-top: 2px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-left: 6px; vertical-align: middle; }
+  .dot.avail { background: var(--green); }
+  .dot.busy { background: var(--gray-400); }
+  .no-tps { font-size: 12px; color: var(--text2); font-style: italic; }
+
+  /* ── Station section headers in TP panel ── */
+  .station-section { margin-bottom: 16px; }
+  .station-header { font-size: 10px; font-weight: 500; color: var(--text2); text-transform: uppercase; letter-spacing: 0.07em; padding: 4px 10px; background: var(--bg3); border-radius: 6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; }
+  .station-count { font-weight: 400; opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="h-title">CSV Tree Explorer</h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="btn btn-reload" id="btn-reload" onclick="resetApp()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8a5 5 0 1 0 1-3"/><path d="M3 3v3h3"/></svg>
+      Load another
+    </button>
+    <button class="btn" id="btn-svg" style="display:none" onclick="exportSVG()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M5 7l3 3 3-3M3 12h10"/></svg>
+      Export SVG
+    </button>
+  </div>
+</header>
+
+<main>
+  <div id="drop-wrap">
+    <div id="drop-zone"
+      ondragover="event.preventDefault();this.classList.add('drag-over')"
+      ondragleave="this.classList.remove('drag-over')"
+      ondrop="handleDrop(event)">
+      <svg width="62" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--purple-400)" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 12h6M12 9v6"/></svg>
+      <p><strong>Load your CSV files</strong></p>
+      <p class="hint">
+        tree.csv — bahnhof_id, eps_id, tech_platz_linked, tech_platz_to_link, explanation<br>
+        tps_data.csv — id, name, bahnhof, gleis_names
+      </p>
+      <div class="upload-row">
+        <div id="btn-tree-upload" class="upload-btn" onclick="document.getElementById('file-input').click()">📄 tree.csv</div>
+        <div id="btn-tps-upload" class="upload-btn" onclick="document.getElementById('file-input-tps').click()">📄 tps_data.csv</div>
+      </div>
+      <p id="error-msg"></p>
+      <input type="file" id="file-input" accept=".csv" onchange="handleTreeFile(this.files[0])">
+      <input type="file" id="file-input-tps" accept=".csv" onchange="handleTpsFile(this.files[0])">
+    </div>
+  </div>
+
+  <div id="app">
+    <div id="legend">
+      <span style="font-weight:500">Legend:</span>
+      <span><span class="ld" style="background:var(--gray-50);border-color:var(--gray-400)"></span>Station</span>
+      <span><span class="ld" style="background:var(--teal-50);border-color:var(--teal-400)"></span>Equipment</span>
+      <span><span class="ld" style="background:var(--gray-50);border-color:var(--gray-400)"></span>TP already linked</span>
+      <span><span class="ld" style="background:var(--purple-50);border-color:var(--purple-200)"></span>TP linked by LLM — click for details</span>
+      <span style="margin-left:auto"><span class="dot avail"></span> free &nbsp; <span class="dot busy"></span> already linked</span>
+    </div>
+    <div id="app-body">
+      <div id="tree-scroll"><svg id="tree-svg"></svg></div>
+      <div id="detail-panel">
+        <div id="detail-top">
+          <h2>Row details</h2>
+          <p class="placeholder">Click a purple node to inspect</p>
+        </div>
+        <div id="detail-divider" style="display:none"></div>
+        <div id="tp-options" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+let DATA = [];
+let TPS = [];
+let treeLoaded = false;
+let tpsLoaded = false;
+let activeId = null;
+
+const AUTO_LOAD_CSV = "connections.csv";
+const AUTO_LOAD_TPS = "tps_data.csv";
+
+const REQUIRED_TREE = ["bahnhof_id","eps_id","tech_platz_linked","tech_platz_to_link","explanation"];
+const REQUIRED_TPS  = ["id","name","bahnhof","gleis_names"];
+const LABELS = { bahnhof_id:"Station", eps_id:"EPS", tech_platz_linked:"Linked TP", tech_platz_to_link:"Link Suggestion by", explanation:"Explanation" };
+
+const STYLES = {
+  station:    { fill:"#F1EFE8", stroke:"#888780", text:"#5F5E5A" },
+  eps:        { fill:"#E1F5EE", stroke:"#1D9E75", text:"#0F6E56" },
+  linked:     { fill:"#F1EFE8", stroke:"#888780", text:"#5F5E5A" },
+  leaf:       { fill:"#EEEDFE", stroke:"#AFA9EC", text:"#3C3489" },
+  leafActive: { fill:"#7F77DD", stroke:"#534AB7", text:"#ffffff" },
+};
+
+const NW = 110, NH = 34, RX = 17;
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("drag-over");
+  [...e.dataTransfer.files].forEach(f => {
+    if (f.name.toLowerCase().includes("tps")) handleTpsFile(f);
+    else handleTreeFile(f);
+  });
+}
+
+function readFile(file, cb) {
+  const r = new FileReader();
+  r.onload = e => cb(e.target.result);
+  r.readAsText(file);
+}
+
+function handleTreeFile(file) {
+  if (!file) return;
+  readFile(file, text => {
+    const rows = d3.csvParse(text);
+    const missing = REQUIRED_TREE.filter(c => !rows.columns.includes(c));
+    if (missing.length) { showError("tree.csv missing: " + missing.join(", ")); return; }
+    DATA = rows;
+    treeLoaded = true;
+    document.getElementById("btn-tree-upload").classList.add("loaded");
+    document.getElementById("btn-tree-upload").textContent = "✓ " + file.name;
+    showError("");
+    tryLaunch();
+  });
+}
+
+function handleTpsFile(file) {
+  if (!file) return;
+  readFile(file, text => {
+    const rows = d3.csvParse(text);
+    const missing = REQUIRED_TPS.filter(c => !rows.columns.includes(c));
+    if (missing.length) { showError("tps_data.csv missing: " + missing.join(", ")); return; }
+    TPS = rows;
+    tpsLoaded = true;
+    document.getElementById("btn-tps-upload").classList.add("loaded");
+    document.getElementById("btn-tps-upload").textContent = "✓ " + file.name;
+    showError("");
+    tryLaunch();
+  });
+}
+
+function showError(msg) { document.getElementById("error-msg").textContent = msg; }
+
+function tryLaunch() {
+  if (!treeLoaded || !tpsLoaded) return;
+  document.getElementById("drop-wrap").style.display = "none";
+  document.getElementById("app").style.display = "flex";
+  document.getElementById("btn-svg").style.display = "";
+  document.getElementById("btn-reload").style.display = "";
+  draw();
+}
+
+function resetApp() {
+  DATA = []; TPS = []; treeLoaded = false; tpsLoaded = false; activeId = null;
+  document.getElementById("drop-wrap").style.display = "flex";
+  document.getElementById("app").style.display = "none";
+  document.getElementById("btn-svg").style.display = "none";
+  document.getElementById("btn-reload").style.display = "none";
+  document.getElementById("btn-tree-upload").className = "upload-btn";
+  document.getElementById("btn-tree-upload").textContent = "📄 tree.csv";
+  document.getElementById("btn-tps-upload").className = "upload-btn";
+  document.getElementById("btn-tps-upload").textContent = "📄 tps_data.csv";
+  showError("");
+}
+
+function buildHierarchy() {
+  const root = { id:"root", type:"root", children:[] };
+  const sm = {};
+  DATA.forEach(row => {
+    const sid = row.bahnhof_id;
+    if (!sm[sid]) { sm[sid] = { id:sid, name:sid, type:"station", children:[], _em:{} }; root.children.push(sm[sid]); }
+    const sn = sm[sid];
+    const eid = sid+"_"+row.eps_id;
+    if (!sn._em[eid]) { sn._em[eid] = { id:eid, name:row.eps_id, type:"eps", children:[], _lm:{} }; sn.children.push(sn._em[eid]); }
+    const en = sn._em[eid];
+    const lid = eid+"_"+row.tech_platz_linked;
+    if (!en._lm[lid]) { en._lm[lid] = { id:lid, name:row.tech_platz_linked, type:"linked", children:[] }; en.children.push(en._lm[lid]); }
+    en._lm[lid].children.push({
+      id: lid+"_"+row.tech_platz_to_link+"_"+Math.random(),
+      name: row.tech_platz_to_link, type:"leaf", row
+    });
+  });
+  return root;
+}
+
+function draw() {
+  const root = buildHierarchy();
+  const hier = d3.hierarchy(root);
+  d3.tree().nodeSize([50, 180])(hier);
+
+  const nodes = hier.descendants().filter(d => d.data.type !== "root");
+  const links = hier.links().filter(d => d.source.data.type !== "root");
+
+  const xs = nodes.map(d=>d.x), ys = nodes.map(d=>d.y);
+  const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys);
+  const W = Math.max(...ys) - minY + NW + 64;
+  const H = maxX - minX + NH + 64;
+  const ox = -minX + NH , oy = -minY + 62;
+
+  const isDark = matchMedia("(prefers-color-scheme:dark)").matches;
+  const lc = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+  const lc2 = "#AFA9EC";
+
+  const svg = d3.select("#tree-svg").attr("width",W).attr("height",H);
+  svg.selectAll("*").remove();
+  svg.append("defs").html(`
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M1.5 1.5L8.5 5L1.5 8.5" fill="none" stroke="${lc}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M1.5 1.5L8.5 5L1.5 8.5" fill="none" stroke="${lc2}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>`);
+
+  const g = svg.append("g");
+
+  g.selectAll(".lnk").data(links).join("path")
+    .attr("fill","none")
+    .attr("stroke", d => d.target.data.type==="leaf" ? lc2 : lc)
+    .attr("stroke-width", 1)
+    .attr("marker-end", d => d.target.data.type==="leaf" ? "url(#arr2)" : "url(#arr)")
+    .attr("d", d => {
+      const sx=d.source.x+ox, sy=d.source.y+oy+NW/2;
+      const tx=d.target.x+ox, ty=d.target.y+oy-NW/2+2;
+      return `M${sy},${sx} C${(sy+ty)/2},${sx} ${(sy+ty)/2},${tx} ${ty-1},${tx}`;
+    });
+
+  const ng = g.selectAll(".ng").data(nodes).join("g")
+    .attr("transform", d=>`translate(${d.y+oy-NW/2},${d.x+ox-NH/2})`)
+    .style("cursor", d=>d.data.type==="leaf"?"pointer":"default")
+    .on("click", (e,d) => {
+      if (d.data.type!=="leaf") return;
+      activeId = activeId===d.data.id ? null : d.data.id;
+      draw();
+      showDetail(activeId ? d.data.row : null);
+    });
+
+  ng.append("rect")
+    .attr("width",NW).attr("height",NH).attr("rx",RX)
+    .attr("fill", d => d.data.type==="leaf"&&d.data.id===activeId ? STYLES.leafActive.fill : STYLES[d.data.type]?.fill)
+    .attr("stroke", d => d.data.type==="leaf"&&d.data.id===activeId ? STYLES.leafActive.stroke : STYLES[d.data.type]?.stroke)
+    .attr("stroke-width", 0.5);
+
+  ng.append("text")
+    .attr("x",NW/2).attr("y",NH/2)
+    .attr("text-anchor","middle").attr("dominant-baseline","central")
+    .attr("font-size","12").attr("font-weight","500")
+    .attr("fill", d => d.data.type==="leaf"&&d.data.id===activeId ? STYLES.leafActive.text : STYLES[d.data.type]?.text)
+    .text(d => d.data.name.length>13 ? d.data.name.slice(0,12)+"…" : d.data.name);
+}
+
+function showDetail(row) {
+  const top = document.getElementById("detail-top");
+  const div = document.getElementById("detail-divider");
+  const opts = document.getElementById("tp-options");
+
+  if (!row) {
+    top.innerHTML = '<h2>LLM-Decision details</h2><p class="placeholder">Click a purple node to inspect</p>';
+    div.style.display = "none";
+    opts.style.display = "none";
+    return;
+  }
+
+  top.innerHTML = `<h2>LLM-Decision details</h2>
+    <!--
+      ${["bahnhof_id","eps_id","tech_platz_linked","tech_platz_to_link"].map(k=>`
+    <div class="field"><div class="fl">${LABELS[k]}</div><div class="fv">${row[k]}</div></div>`).join("")}
+     -->   
+      
+    ${["tech_platz_to_link"].map(k=>`
+    <div class="field"><div class="fl">${LABELS[k]}</div><div class="fv">${row[k]}</div></div>`).join("")}
+    <div class="field">Confidence: 90%</div>
+    <div class="expl">${row.explanation}</div>`;
+
+
+  div.style.display = "";
+  opts.style.display = "";
+
+  const station = row.bahnhof_id;
+  const linkedInUse = new Set(DATA.map(r => r.tech_platz_linked));
+
+  const stationTps = TPS.filter(tp => tp.bahnhof === station);
+
+  if (!stationTps.length) {
+    opts.innerHTML = `<h3>TP options — ${station}</h3><p class="no-tps">No TPs found for this station in tps_data.csv</p>`;
+    return;
+  }
+
+  const available = stationTps.filter(tp => !linkedInUse.has(tp.id));
+  const taken     = stationTps.filter(tp =>  linkedInUse.has(tp.id));
+
+  function tpRow(tp, isTaken) {
+    return `<div class="tp-row ${isTaken?"taken":"avail"}">
+      <div class="tp-left">
+        <div class="tr-id">${tp.id}<span class="dot ${isTaken?"busy":"avail"}"></span></div>
+        <div class="tr-name">${tp.name||"—"}</div>
+      </div>
+      <div class="tp-right">
+        <div class="tr-gleis">${tp.gleis_names||"—"}</div>
+        <div class="tr-status">${isTaken?"already linked":"free"}</div>
+      </div>
+    </div>`;
+  }
+
+  opts.innerHTML = `
+    <h3>TP options — ${station}</h3>
+    ${available.length ? `
+      <div class="station-section">
+        <div class="station-header"><span>Available</span><span class="station-count">${available.length}</span></div>
+        ${available.map(tp=>tpRow(tp,false)).join("")}
+      </div>` : ""}
+    ${taken.length ? `
+      <div class="station-section">
+        <div class="station-header"><span>Already linked</span><span class="station-count">${taken.length}</span></div>
+        ${taken.map(tp=>tpRow(tp,true)).join("")}
+      </div>` : ""}`;
+}
+
+const AUTO_TREE = "connections.csv";
+const AUTO_TPS  = "tps_data.csv";
+
+Promise.all([
+  fetch(AUTO_TREE).then(r => r.text()),
+  fetch(AUTO_TPS).then(r => r.text())
+]).then(([treeText, tpsText]) => {
+  handleTreeFile(new File([treeText], AUTO_TREE, {type:"text/csv"}));
+  handleTpsFile(new File([tpsText],  AUTO_TPS,  {type:"text/csv"}));
+}).catch(() => {});
+
+function exportSVG() {
+  const svg = document.getElementById("tree-svg");
+  const clone = svg.cloneNode(true);
+  const s = document.createElement("style");
+  s.textContent = `text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:12px;}`;
+  clone.insertBefore(s, clone.firstChild);
+  const blob = new Blob([clone.outerHTML], {type:"image/svg+xml"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "tree.svg"; a.click();
+}
+
+</script>
+</body>
+</html>
