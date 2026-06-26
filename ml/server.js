@@ -339,7 +339,7 @@ out geom;
 
 function serveStatic(res, pathname) {
   const normalizedPath =
-    pathname === "/" ? "fe/index.html" : pathname.replace(/^\/+/, "");
+    pathname === "/" ? "dashboard/index.html" : pathname.replace(/^\/+/, "");
   const filePath = path.normalize(path.join(ROOT_DIR, normalizedPath));
 
   if (!filePath.startsWith(ROOT_DIR)) {
@@ -432,7 +432,7 @@ function resolveWorkspacePath(inputPath) {
 }
 
 function pickPythonExecutable() {
-  const venvPython = path.join(ROOT_DIR, "ml", ".venv", "bin", "python");
+  const venvPython = path.join(ROOT_DIR, ".venv", "bin", "python");
   if (fs.existsSync(venvPython)) {
     return venvPython;
   }
@@ -448,11 +448,7 @@ function runPythonInference({
 }) {
   return new Promise((resolve, reject) => {
     const pythonBin = pickPythonExecutable();
-    const scriptPath = path.join(
-      ROOT_DIR,
-      "ml",
-      "infer_instance_segmentation.py",
-    );
+    const scriptPath = path.join(ROOT_DIR, "infer_instance_segmentation.py");
     const args = [
       scriptPath,
       "--weights",
@@ -470,7 +466,7 @@ function runPythonInference({
     }
 
     const child = spawn(pythonBin, args, {
-      cwd: path.join(ROOT_DIR, "ml"),
+      cwd: ROOT_DIR,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -516,7 +512,7 @@ async function serveInference(req, res) {
 
   let imagePath = null;
   const weightsPath = resolveWorkspacePath(
-    payload.weightsPath || "ml/runs/platform_instance/best.pt",
+    payload.weightsPath || "runs/platform_instance/best.pt",
   );
   const scoreThresholdRaw = Number(payload.scoreThreshold ?? 0.5);
   const scoreThreshold = Number.isFinite(scoreThresholdRaw)
@@ -527,7 +523,7 @@ async function serveInference(req, res) {
       ? payload.device.trim()
       : null;
 
-  const inputDir = path.join(ROOT_DIR, "ml", "predictions", "frontend_inputs");
+  const inputDir = path.join(ROOT_DIR, "predictions", "frontend_inputs");
   fs.mkdirSync(inputDir, { recursive: true });
 
   if (typeof payload.imageDataUrl === "string" && payload.imageDataUrl.trim()) {
@@ -588,7 +584,7 @@ async function serveInference(req, res) {
     return;
   }
 
-  const outputDir = path.join(ROOT_DIR, "ml", "predictions", "frontend");
+  const outputDir = path.join(ROOT_DIR, "predictions", "frontend");
   fs.mkdirSync(outputDir, { recursive: true });
   const imageStem = path.basename(imagePath, path.extname(imagePath));
   const outputPath = path.join(
